@@ -2,6 +2,7 @@ set(lib_name saiko_lily)
 set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
 set(command_core_dir ${CMAKE_SOURCE_DIR}/Modules/CommandCore)
 set(encapsulation_spdlog_dir ${CMAKE_SOURCE_DIR}/Modules/Loggings)
+set(gwongdong_filesystem_dir ${CMAKE_SOURCE_DIR}/Modules/GwongDongFileSystems)
 
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -29,7 +30,9 @@ target_include_directories(${lib_name}
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${encapsulation_spdlog_dir}/include
         ${command_core_dir}/include
+        ${gwongdong_filesystem_dir}/include
 )
 
 target_link_libraries(${lib_name} PRIVATE encapsulation_spdlog)
 target_link_libraries(${lib_name} PRIVATE command_core)
+target_link_libraries(${lib_name} PRIVATE gwongdong_filesystem)

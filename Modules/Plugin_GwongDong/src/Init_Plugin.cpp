@@ -1,4 +1,6 @@
-#include <windows.h>
+#ifdef _WIN32
+    #include <windows.h>
+#endif
 
 #include "../include/Init_Plugin.hpp"
 #include "Init_Plugin.hpp"
@@ -389,6 +391,11 @@ int ts3plugin_init()
        logInstance->Logging(msg, level, flush);
     });
 
+    GwongDongFileSystem::SetLogCallback([](const std::string& msg, Plugin_Logs::logLevel level, bool flush)
+    {
+       logInstance->Logging(msg, level, flush);
+    });
+
     SaiKoLily::DiceCommand::RegisterDiceCommands(*registry);
     SaiKoLily::CheckCommand::RegisterHistoryCommands(*registry);
     Sessions::RegisterSessionsCommand(*registry);
@@ -444,7 +451,7 @@ void ts3plugin_shutdown()
     }
 }
 
-void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int newStatus, int errorNumber)
+LIB_EXPORT void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int newStatus, int errorNumber)
 {
 
     logInstance->Logging(std::format("回调触发! 状态: {}", newStatus), Plugin_Logs::logLevel::debug, false);
@@ -670,7 +677,7 @@ LIB_EXPORT void ts3plugin_onClientMoveEvent(uint64 serverConnectionHandlerID, an
 
 }
 
-void ts3plugin_onClientMoveMovedEvent(uint64 serverConnectionHandlerID, anyID clientID, anyID oldChannelID, uint64 newChannelID, int visibility, anyID moverID, const char* moverName, const char* moverUniqueIdentifier, const char* moveMessage)
+LIB_EXPORT void ts3plugin_onClientMoveMovedEvent(uint64 serverConnectionHandlerID, anyID clientID, anyID oldChannelID, uint64 newChannelID, int visibility, anyID moverID, const char* moverName, const char* moverUniqueIdentifier, const char* moveMessage)
 {
     auto mover_nickname = clientCache.GetClientCache()[serverConnectionHandlerID].at(moverUniqueIdentifier).nickName;
 

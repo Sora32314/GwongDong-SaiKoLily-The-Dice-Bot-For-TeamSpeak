@@ -29,6 +29,7 @@
 #include <SaiKoLily.hpp>
 #include <CMD_SaiKoLily.hpp>
 #include <SessionManager.hpp>
+#include <GwongDongFileSystem.hpp>
 
 //添加导出到库的标识
 #ifndef LIB_EXPORT

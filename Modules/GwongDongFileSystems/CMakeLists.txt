@@ -26,7 +26,6 @@ target_include_directories(${lib_name}
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${encapsulation_spdlog_dir}/include
-        
 )
 
 target_link_libraries(${lib_name} PRIVATE encapsulation_spdlog)

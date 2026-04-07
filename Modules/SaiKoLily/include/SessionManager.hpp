@@ -8,6 +8,7 @@
 #include <loggings.hpp>
 #include <shared_mutex>
 #include <CommandCore.hpp>
+#include <GwongDongFileSystem.hpp>
 #include <SaiKoLilyInterface.hpp>
 
 using int64_t = long long;
@@ -187,7 +188,7 @@ namespace Sessions::SessionsCommandTemp
     */
     enum class TermType
     {
-        Create = 1, End, Status, Info, List, Search, Activate, Rest, Select, UnSelect, UserJoin, UserQuit, AdminsSet, AdminsRemove, AdminsList, UserList, Bind, History, CleanHistory, Set, Export, Import, Help, Others, NULLCommand
+        Create = 1, End, Status, Info, List, Search, Activate, Rest, Select, UnSelect, UserJoin, UserQuit, AdminsSet, AdminsRemove, AdminsList, UserList, Bind, History, CleanHistory, SaveToFile, Set, Export, Import, Help, Others, NULLCommand
     };
 
     static std::unordered_map<std::string_view, Sessions::SessionFetchMethod> FetchMethodMap =
@@ -687,6 +688,12 @@ namespace Sessions::SessionsCommandTemp
                             }
 
                             context.SendResult(std::format("历史记录获取成功:\n{}", result), Command_Core::MessageTarget::CurrentChannel);
+                        }
+                        break;
+                    case TermType::SaveToFile:
+                        {
+                            GwongDongFileSystem::FileObject file(fs::current_path());
+                            //file.WriteFile()
                         }
                         break;
                     default: 
