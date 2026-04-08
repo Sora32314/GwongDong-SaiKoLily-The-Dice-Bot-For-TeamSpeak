@@ -351,7 +351,10 @@ namespace Sessions::SessionsCommandTemp
             //将所有Select移动至开头防止多次重复定义。
 
             auto Copy_Of_Terms = terms;
-            std::stable_partition(Copy_Of_Terms.begin(), Copy_Of_Terms.end(), [](const auto& term) { return term.type == TermType::Select; });
+            std::stable_partition(Copy_Of_Terms.begin(), Copy_Of_Terms.end(), [](const auto& term)
+                                                                                 { 
+                                                                                    return term.type == TermType::Select;
+                                                                                 });
             //最后一个Select会被最终执行。
 
             for(auto& term : Copy_Of_Terms)
@@ -693,7 +696,47 @@ namespace Sessions::SessionsCommandTemp
                     case TermType::SaveToFile:
                         {
                             GwongDongFileSystem::FileObject file(fs::current_path());
-                            //file.WriteFile()
+                            
+                            context.Log(std::format("Enter SaveToFile."), Plugin_Logs::logLevel::info, true);
+
+                            try
+                            {
+                                switch(term.args.size())
+                                {
+                                case 0: 
+                                    {
+                                        fs::path path;
+                                        GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, "", "");
+                                        break;
+                                    }
+                                case 1:
+                                    {
+                                        fs::path path = term.args[0];
+                                        GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, "", "");
+                                        break;
+                                    }
+                                case 2:
+                                    {
+                                        fs::path path = term.args[0];
+                                        GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, term.args[1], "");
+                                        break;
+                                    }
+                                case 3:
+                                    {
+                                        fs::path path = term.args[0];
+                                        GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, term.args[1], term.args[2]);
+                                        break;
+                                    }
+                                default: 
+                                    return "SessionsSaveToFile: 参数过多或过少！";
+                                }
+                            }
+                            catch(const std::exception& e)
+                            {
+                                context.Log(std::format("{}", e.what()), Plugin_Logs::logLevel::err, true);
+                                return "SessionsSaveToFile: 文件创建失败！";
+                            }
+                            
                         }
                         break;
                     default: 
@@ -834,6 +877,14 @@ namespace Sessions::SessionsCommandTemp
             {"历史", TermType::History},
             {"查看历史", TermType::History},
             {"查询历史", TermType::History},
+
+            {"STF", TermType::SaveToFile},
+            {"SaveToFile", TermType::SaveToFile},
+            {"savetofile", TermType::SaveToFile},
+            {"保存历史", TermType::SaveToFile},
+            {"保存", TermType::SaveToFile},
+            {"保存会话数据", TermType::SaveToFile},
+            {"保存会话记录", TermType::SaveToFile},
 
             {"CleanHistory", TermType::CleanHistory},
             {"cleanhistory", TermType::CleanHistory},

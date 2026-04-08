@@ -1,7 +1,9 @@
 #pragma once
 
 #include <ctime>
+#include <random>
 #include <chrono>
+#include <iomanip>
 #include <fstream>
 //#include <expected>
 #include <functional>
@@ -16,9 +18,8 @@ namespace GwongDongFileSystem
 {
     //日志记录
     using LogCallBack = std::function<void(const std::string&, Plugin_Logs::logLevel, bool nowFlush)>;
-    void SetLogCallback(LogCallBack callback);
 
-    static LogCallBack FSLogCallback = nullptr;
+    extern LogCallBack FSLogCallback;
     void SetLogCallback(LogCallBack callback);
 
     //IFileManager - > IFileOperator -> Do Work;
@@ -80,10 +81,15 @@ namespace GwongDongFileSystem
 //     virtual ~IFileIO() = default;
 
 //     virtual void WriteFile(const std::string& content) const = 0;
+//     virtual void WriteFile(const std::string&& content) const = 0;
 //     virtual void WriteFileMetaData(const std::string& content) const = 0;
+//     virtual void WriteFileMetaData(const std::string&& content) const = 0;
 //     virtual void WriteFileFromHead(const std::string& content) const = 0;
+//     virtual void WriteFileFromHead(const std::string&& content) const = 0;
 //     virtual void WriteFileFromTail(const std::string& content) const = 0;
+//     virtual void WriteFileFromTail(const std::string&& content) const = 0;
 //     virtual void WriteFileTotal(const std::string& content) const = 0;
+//     virtual void WriteFileTotal(const std::string&& content) const = 0;
 //     virtual std::string ReadFile() const = 0;
 // };
 
@@ -359,34 +365,70 @@ namespace GwongDongFileSystem
         {
             srand(time(nullptr));
 
+            FSLogCallback("[GwongDongFileSystem] 正在创建文件。", Plugin_Logs::logLevel::info, true);
+
+            std::string finalName;
+
             if(path.empty())
             {
-                FSLogCallback("[GwongDongFileSystem] path is empty, will create file at this directory.", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] path is empty, will create file at this directory.", Plugin_Logs::logLevel::info, true);
                 path = fs::current_path();
-                return;
             }
 
             if(name.empty())
             {
-                FSLogCallback("[GwongDongFileSystem] name is empty, using random name.", Plugin_Logs::logLevel::warn, false);
+                FSLogCallback("[GwongDongFileSystem] name is empty, using random name.", Plugin_Logs::logLevel::warn, true);
                 
-                std::string newname;
-                for(int i = 0; i < 10; i++)
                 {
-                    newname += (char)(rand() % 255);
+                    std::lock_guard<std::mutex> lock(mutex);
+                    
+                    finalName = []() {
+                        auto now = std::chrono::system_clock::now();
+                        auto now_ns = std::chrono::time_point_cast<std::chrono::nanoseconds>(now);
+                        auto timestamp = now_ns.time_since_epoch().count();
+
+                        thread_local std::mt19937_64 rng{std::random_device{}()};
+                        std::uniform_int_distribution<uint64_t> dist;
+                        uint64_t random_part = dist(rng);
+
+                        std::ostringstream oss;
+                        oss << std::hex << std::setfill('0')
+                            << std::setw(16) << timestamp   // 16 位十六进制时间戳
+                            << "-"
+                            << std::setw(16) << random_part // 16 位十六进制随机数
+                            << "-"
+                            << std::setw(8) << std::this_thread::get_id();
+
+                        return oss.str();
+                    }();
                 }
-                name = newname;
-                return;
+
+                FSLogCallback(std::format("[GwongDongFileSystem] Using name: {}", finalName), Plugin_Logs::logLevel::info, true);
+            }
+            else
+            {
+                finalName = name;
             }
 
             if(fileNameExtension.empty())
             {
-                FSLogCallback("[GwongDongFileSystem] fileNameExtension is empty, using default.", Plugin_Logs::logLevel::warn, false);
+                FSLogCallback("[GwongDongFileSystem] fileNameExtension is empty, using default.", Plugin_Logs::logLevel::warn, true);
 
                 fileNameExtension = "nil";
-                return;
             }
 
+            path.append(finalName).replace_extension(fileNameExtension);
+
+            FSLogCallback("[GwongDongFileSystem] Create file: " + path.string(), Plugin_Logs::logLevel::info, true);
+
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                
+                FileObject fileObject(path);
+                std::ofstream outFile(path);
+            }
+            
+            
         }
         void NWriteFile(const fs::path& path) const
         {
@@ -428,6 +470,9 @@ namespace GwongDongFileSystem
         {
 
         }
+
+    private:
+        std::vector<FileObject> baseFileArray;
 
     };
 
