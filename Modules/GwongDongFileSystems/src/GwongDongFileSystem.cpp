@@ -9,46 +9,8 @@ namespace GwongDongFileSystem
         FSLogCallback = callback;
     }
 
-    //基础文件实例类
-    class FileBase : public ITotalFileOperator
-    {
-    public:
-        FileBase()
-        {
-
-        }
-
-        FileBase(const FileBase&) = delete;
-        virtual ~FileBase() = default;
-
-    public:
-
-    void ReadFile(std::string& file) const override
-    {
-
-    }
-
-    void DeleteFile() const override
-    {
-
-    }
-
-    void RenameFile(std::string& file) const override
-    {
-
-    }
-
-    public:
-        std::string fileName;
-        fs::path path;
-        std::fstream file;
-        std::tm createTime;
-        std::tm modifyTime;
-        std::tm accessTime;
-        size_t fileSize;
-        std::string Owner;
-    };
-
+    /*
+    
     // class FileInstance : public FileBase
     // {
     // public:
@@ -164,5 +126,8 @@ namespace GwongDongFileSystem
 
     //     return true;
     // }
+
+    
+    */
 
 }

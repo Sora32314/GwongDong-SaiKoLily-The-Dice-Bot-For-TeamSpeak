@@ -20,92 +20,59 @@ namespace GwongDongFileSystem
     using LogCallBack = std::function<void(const std::string&, Plugin_Logs::logLevel, bool nowFlush)>;
 
     extern LogCallBack FSLogCallback;
-    void SetLogCallback(LogCallBack callback);
-
-    //IFileManager - > IFileOperator -> Do Work;
-    //IFileManager 作为接口，提供管理和获取IBaseFile的功能，如创建、删除、重命名文件等。
-    //IFileOperator 作为中间接口，提供文件的基本属性和操作，如获取文件大小、文件名、路径等。
+    void SetLogCallback(LogCallBack callback);    
 
     //基础文件接口(包含MetaData接口和文件操作接口)
-
-    
-    class ITotalFileOperator
+    //拆解文件接口
+    class IFileInfo
     {
     public:
-        ITotalFileOperator() = default;
-        virtual ~ITotalFileOperator() = default;
-        
-    public:
+        virtual ~IFileInfo() = default;
 
         virtual size_t GetSize() const = 0;
         virtual std::string GetFileName() const = 0;
         virtual std::string GetPathStr() const = 0;
         virtual std::tm GetFileCreateTime() const = 0;
         virtual std::tm GetFileModifyTime() const = 0;
-        virtual void WriteFile(std::string& file) const = 0;
-        virtual void ReadFile(std::string& file) const = 0;
-        virtual void DeleteFile() const = 0;
-        virtual void RenameFile(std::string& file) const = 0;
-        virtual void CopyFile(std::string& file) const = 0;
-        virtual void MoveFile(std::string& file) const = 0;
-        virtual bool Exists() const noexcept= 0;
+        virtual bool Exists() const noexcept = 0;
         virtual bool IsDirectory() const = 0;
         virtual bool IsRegularFile() const = 0;
-
     };
 
+    class IFileIO
+    {
+    private:
+        mutable std::mutex _mutex;
 
-    //拆解文件接口
-/*
-// class IFileInfo
-// {
-// public:
-//     virtual ~IFileInfo() = default;
+    public:
+        virtual ~IFileIO() = default;
 
-//     virtual size_t GetSize() const = 0;
-//     virtual std::string GetFileName() const = 0;
-//     virtual std::string GetPathStr() const = 0;
-//     virtual std::tm GetFileCreateTime() const = 0;
-//     virtual std::tm GetFileModifyTime() const = 0;
-//     virtual bool Exists() const noexcept = 0;
-//     virtual bool IsDirectory() const = 0;
-//     virtual bool IsRegularFile() const = 0;
-// };
+        virtual void WriteFile(std::string_view content) const = 0;
+        virtual void WriteFileMetaData(std::string_view content) const = 0;
+        virtual void WriteFileFromHead(std::string_view content) const = 0;
+        virtual void WriteFileFromTail(std::string_view content) const = 0;
+        virtual std::string ReadFile() const = 0;
+        virtual std::string ReadFile(size_t bytes) const = 0;
+        virtual std::string ReadFile(size_t begin, size_t end) const = 0;
+    };
 
-// class IFileIO
-// {
-// private:
-//     mutable std::mutex _mutex;
+    class IFileOperator
+    {
+    public:
+        virtual ~IFileOperator() = default;
 
-// public:
-//     virtual ~IFileIO() = default;
+        virtual void RemoveFile() const = 0;
+        virtual void RenameTo(std::string_view new_name) const = 0;
+        virtual void Copy(const fs::path& dest_path) const = 0;
+        virtual void MoveTo(const fs::path& dest_path) const = 0;
+        virtual void SetPath(const fs::path& path) = 0;
+    };
 
-//     virtual void WriteFile(const std::string& content) const = 0;
-//     virtual void WriteFile(const std::string&& content) const = 0;
-//     virtual void WriteFileMetaData(const std::string& content) const = 0;
-//     virtual void WriteFileMetaData(const std::string&& content) const = 0;
-//     virtual void WriteFileFromHead(const std::string& content) const = 0;
-//     virtual void WriteFileFromHead(const std::string&& content) const = 0;
-//     virtual void WriteFileFromTail(const std::string& content) const = 0;
-//     virtual void WriteFileFromTail(const std::string&& content) const = 0;
-//     virtual void WriteFileTotal(const std::string& content) const = 0;
-//     virtual void WriteFileTotal(const std::string&& content) const = 0;
-//     virtual std::string ReadFile() const = 0;
-// };
-
-// class IFileOperator
-// {
-// public:
-//     virtual ~IFileOperator() = default;
-
-//     virtual void DeleteFile() const = 0;
-//     virtual void RenameFile(const std::string& new_name) const = 0;
-//     virtual void CopyFile(const std::string& dest_path) const = 0;
-//     virtual void MoveFile(const std::string& dest_path) const = 0;
-//     virtual void SetPath(const std::string& path) = 0;
-// };
-*/
-
+    class ITotalFileOperator : public IFileInfo, public IFileIO, public IFileOperator
+    {
+    public:
+        virtual ~ITotalFileOperator() = default;
+    };
     
 
     class FileObject : public ITotalFileOperator
@@ -192,7 +159,26 @@ namespace GwongDongFileSystem
             return time;
         }
 
-        void WriteFile(std::string& content) const override
+        void WriteFile(std::string_view content) const override
+        {
+            if(!Exists())
+            {
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+            }
+
+            
+
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                std::ofstream file(_path, std::ios::out);
+                
+                auto finalContent = MakeMetaData() + std::string(content);
+
+                file.write(finalContent.data(), finalContent.size());
+            }
+        }
+
+        void WriteFileMetaData(std::string_view content) const override
         {
             if(!Exists())
             {
@@ -203,18 +189,55 @@ namespace GwongDongFileSystem
                 std::lock_guard<std::mutex> lock(_mutex);
                 std::ofstream file(_path, std::ios::out);
                 
-                auto metaData = MakeMetaData();
-                content = metaData + content;
-                file.write(content.data(), content.size());
+                auto finalContent = MakeMetaData() + "\n" + std::string(content);
+
+                file.write(finalContent.data(), finalContent.size());
             }
         }
 
-        void ReadFile(std::string& content) const override
+        void WriteFileFromHead(std::string_view content) const override
         {
             if(!Exists())
             {
                 FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
             }
+
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                std::ofstream file(_path, std::ios::app);
+                
+                file.seekp(0, std::ios::beg);
+
+                auto finalContent = std::string(content) + "\n" + MakeMetaData();
+
+                file.write(finalContent.data(), finalContent.size());
+            }
+        }
+        
+        void WriteFileFromTail(std::string_view content) const override
+        {
+            if(!Exists())
+            {
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                std::ofstream file(_path, std::ios::app);
+                
+                auto finalContent = MakeMetaData() + "\n" + std::string(content);
+
+                file.write(finalContent.data(), finalContent.size());
+            }
+        }
+        
+        std::string ReadFile() const override
+        {
+            if(!Exists())
+            {
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+            }
+            std::string content;
             
             {
                 std::lock_guard<std::mutex> lock(_mutex);
@@ -223,9 +246,51 @@ namespace GwongDongFileSystem
                 ss << inFile.rdbuf();
                 content = ss.str();
             }
+
+            return content;
         }
 
-        void DeleteFile() const override
+        std::string ReadFile(size_t bytes) const override
+        {
+            if(!Exists())
+            {
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+            }
+
+            std::string content;
+
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                std::ifstream inFile(_path, std::ios::in);
+                std::stringstream ss;
+                ss << inFile.rdbuf();
+                content = ss.str();
+            }
+
+            return content.substr(0, bytes);
+        }
+
+        std::string ReadFile(size_t begin, size_t end) const override
+        {
+            if(!Exists())
+            {
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+            }
+
+            std::string content;
+
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                std::ifstream inFile(_path, std::ios::in);
+                std::stringstream ss;
+                ss << inFile.rdbuf();
+                content = ss.str();
+            }
+
+            return content.substr(begin, end);
+        }
+
+        void RemoveFile() const override
         {
             if(!Exists())
             {
@@ -235,34 +300,40 @@ namespace GwongDongFileSystem
             fs::remove(_path);
         }
 
-        void RenameFile(std::string& new_name) const override
+        virtual void Copy(const fs::path& dest_path) const override
         {
-            if(!Exists())
+            if(dest_path.empty())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] path is empty, cannot set path.", Plugin_Logs::logLevel::warn, true);
+                return;
             }
-
-            fs::rename(_path, new_name);
         }
 
-        void CopyFile(std::string& dest_path) const override
+        virtual void MoveTo(const fs::path& dest_path) const override
         {
-            if(!Exists())
+            if(dest_path.empty())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] path is empty, cannot set path.", Plugin_Logs::logLevel::warn, true);
+                return;
             }
-
-            fs::copy(_path, dest_path);
         }
 
-        void MoveFile(std::string& dest_path) const override
+        virtual void SetPath(const fs::path& path) override
         {
-            if(!Exists())
+            if(path.empty())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] path is empty, cannot set path.", Plugin_Logs::logLevel::warn, true);
+                return;
             }
+        }
 
-            fs::rename(_path, dest_path);
+        virtual void RenameTo(std::string_view new_name) const override
+        {
+            if(new_name.empty())
+            {
+                FSLogCallback("[GwongDongFileSystem] new_name is empty, cannot set path.", Plugin_Logs::logLevel::warn, true);
+                return;
+            }
         }
 
         bool Exists() const noexcept override
@@ -285,66 +356,8 @@ namespace GwongDongFileSystem
         fs::path _path;
     };
 
-    /*
-    class BaseFile : public IBaseFile
-    { 
-    public:
-        BaseFile() = default;
-        ~BaseFile() = default;
 
-    public:
-        virtual void GetSize(size_t& size) const override
-        {
-            size = fs::file_size(path);
-        }
-        virtual void GetFileName(std::string& name) const override
-        {
-            name = path.filename().string();
-        }
-        virtual void GetPathStr(std::string& path) const override
-        {
-            path = path.c_str();
-        }
-        virtual void GetFileModifyTime(std::tm& time) const override
-        {
-            auto res = fs::last_write_time(path);
-            auto sys_time = std::chrono::file_clock::to_utc(res);
-            
-        }
-        virtual void GetFileAccessTime(std::tm& time) const override
-        {
-            GetFileModifyTime(time);
-        }
-        virtual void GetFile(std::string& file) const override
-        {
-            file = file.c_str();
-        }
-        virtual void WriteFile(std::string& file) const override
-        {
-
-        }
-        virtual void ReadFile(std::string& file) const override
-        {
-
-        }
-        virtual void DeleteFile() const override
-        {
-
-        }
-        virtual void RenameFile(std::string& file) const override
-        {
-            
-        }
-    private:
-        std::fstream& file;
-        fs::path& path;
-    };
-
-    */
-
-    
-
-    //文件管理接口
+    //文件管理接口，我恨模板......好丑......
     class FileManager
     {
     public:
@@ -360,8 +373,47 @@ namespace GwongDongFileSystem
 
         mutable std::mutex mutex;
     public:
+        //内容存储查询
+        auto NGetFile(const fs::path& path) const
+        {
+            return std::find_if(baseFileArray.begin(), baseFileArray.end(), [&](const auto& TotalFileOperator){
+                return TotalFileOperator->GetPathStr() == path.string();
+            });
+        }
 
-        void NMakeFile(fs::path& path, std::string_view name, std::string_view fileNameExtension) const
+        auto NGetFile(const std::string_view name)
+        {
+            return std::find_if(baseFileArray.begin(), baseFileArray.end(), [&](const auto& TotalFileOperator){
+                return TotalFileOperator->GetFileName() == name;
+            });
+        }
+
+    public:
+
+
+        //TODO:NMakeFile重载的命名随机化。
+        template<typename Ty, typename ...Args>
+        Ty* NMakeFile(Args&&... args)
+        {
+            if constexpr (!std::is_base_of_v<ITotalFileOperator, Ty>)
+            {
+                FSLogCallback("[GwongDongFileSystem] T必须继承于ITotalFileOperator。", Plugin_Logs::logLevel::err, true);
+                return nullptr;
+            }
+
+            auto ptr = std::make_shared<Ty>(std::forward<Args>(args)...);
+            Ty* rawPtr = ptr.get();
+
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                baseFileArray.emplace_back(std::move(ptr));
+            }
+
+            FSLogCallback(std::format("[GwongDongFileSystem] 文件创建成功。\n路径：{}", ptr->GetPathStr()), Plugin_Logs::logLevel::info, true);
+            return rawPtr;
+        }
+
+        void NMakeFile(fs::path& path, std::string_view name, std::string_view fileNameExtension)
         {
             srand(time(nullptr));
 
@@ -419,21 +471,22 @@ namespace GwongDongFileSystem
 
             path.append(finalName).replace_extension(fileNameExtension);
 
-            FSLogCallback("[GwongDongFileSystem] Create file: " + path.string(), Plugin_Logs::logLevel::info, true);
-
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                
-                FileObject fileObject(path);
+                auto ptr = std::make_shared<FileObject>(std::forward<fs::path>(path));
+                baseFileArray.emplace_back(std::move(ptr));
                 std::ofstream outFile(path);
+
+                FSLogCallback(std::format("[GwongDongFileSystem] 文件创建成功。\n路径：{}", ptr->GetPathStr()), Plugin_Logs::logLevel::info, true);
             }
             
+        }
+        
+        void IOBase()
+        {
             
         }
-        void NWriteFile(const fs::path& path) const
-        {
 
-        }
         void NRenameFile(const fs::path& path, std::string_view newName) const
         {
 
@@ -448,69 +501,30 @@ namespace GwongDongFileSystem
         }
         void NMoveFile(const fs::path& from, const fs::path& to) const
         {
-
+            FSLogCallback(std::format("[GwongDongFileSystem] 尝试移动文件:{} -> {}。", from.string(), to.string()), Plugin_Logs::logLevel::info, true);
+            
         }
         void NCreateDirectory(const fs::path& path) const
         {
-
+            FSLogCallback("[GwongDongFileSystem] 创建目录。", Plugin_Logs::logLevel::info, true);
+            fs::create_directory(path);
+            FSLogCallback(std::format("[GwongDongFileSystem] 目录创建成功。\n路径：{}", path.string()), Plugin_Logs::logLevel::info, true);
         }
-        void NDeleteDirectory(const fs::path& path) const
+        void NDeleteDirectory(const fs::path& path, std::error_code& ec, size_t& rm_count) const
         {
-
+            FSLogCallback("[GwongDongFileSystem] 删除目录。", Plugin_Logs::logLevel::info, true);
+            fs::_Remove_all_dir(path, ec, rm_count);
         }
-        void NGetBaseFile(ITotalFileOperator& baseFile) const
-        {
 
-        }
-        void NGetFile(ITotalFileOperator& BaseFile) const
-        {
-
-        }
         void NGetFileArray(std::vector<ITotalFileOperator>& baseFileArray) const
         {
 
         }
 
     private:
-        std::vector<FileObject> baseFileArray;
+        std::vector<std::shared_ptr<ITotalFileOperator>> baseFileArray;
 
     };
-
-
-
-    /*
-    
-    //创建路径
-    const bool MakePath(const char* string);
-    const bool MakePath(const std::string& string);
-    const bool MakePath(const std::string_view string);
-    const bool MakePathFormCurrent(const Path& path) noexcept;
-
-    //设置当前路径
-    bool SetCurrentPath(const Path& path);
-
-    //其他操作
-    const bool CheckPathExist(const Path& path) noexcept;
-    const bool ReadPresets(const Path& path);
-    const bool GetSize(const Path& path);
-    
-    //文件或目录操作
-    bool Copy(const Path& from, const Path& to);
-    bool Remove(const Path& path);
-    bool Rename(const Path& from, const Path& to);
-    const bool Space(const Path& path);
-
-
-
-
-    //Fstream
-    bool CreatFile(const Path& path);
-    bool WriteFile(const Path& path);
-    const bool ReadFile(const Path& path);
-    
-    
-    */
-    
 
 
 }
