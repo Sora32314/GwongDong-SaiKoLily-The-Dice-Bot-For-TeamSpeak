@@ -661,7 +661,7 @@ namespace Sessions::SessionsCommandTemp
                                     
                                     //time
                                     time.clear();
-                                    time = std::format("{}年{}月{}日{}时{}分{}秒", event->GetTimeInfo().tm_year + 1900, event->GetTimeInfo().tm_mon, event->GetTimeInfo().tm_mday, event->GetTimeInfo().tm_hour, event->GetTimeInfo().tm_min, event->GetTimeInfo().tm_sec);
+                                    time = std::format("%Y年%m月%d日%H时%M分%S秒", event->GetTimeInfo());
 
                                     result += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
                                     result += std::format("{}\n", event->ParseExpressionStr());
@@ -678,7 +678,7 @@ namespace Sessions::SessionsCommandTemp
                                     
                                     //time
                                     time.clear();
-                                    time = std::format("{}年{}月{}日{}时{}分{}秒", event->GetTimeInfo().tm_year + 1900, event->GetTimeInfo().tm_mon, event->GetTimeInfo().tm_mday, event->GetTimeInfo().tm_hour, event->GetTimeInfo().tm_min, event->GetTimeInfo().tm_sec);
+                                    time = std::format("%Y年%m月%d日%H时%M分%S秒", event->GetTimeInfo());
 
                                     result += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
                                     result += std::format("{}\n", event->ParseExpressionStr());

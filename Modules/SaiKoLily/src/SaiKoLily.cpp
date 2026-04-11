@@ -102,9 +102,7 @@ namespace SaiKoLily
         DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player) : rng(_rng), dice_count(_faces.size())
         {
             //初始化时间信息
-            auto now = std::chrono::system_clock::now();
-            std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-            time_info = *(std::localtime(&now_time_t));
+            time_info = std::chrono::system_clock::now();
 
             faces = _faces;
             faces_min.resize(faces.size(), 1);
@@ -114,9 +112,7 @@ namespace SaiKoLily
         DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::vector<int64_t>& _faces_min, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player) : rng(_rng), dice_count(_faces.size())
         {
             //初始化时间信息
-            auto now = std::chrono::system_clock::now();
-            std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-            time_info = *(std::localtime(&now_time_t));
+            time_info = std::chrono::system_clock::now();
 
             faces_min = _faces_min;
             faces = _faces;
@@ -125,9 +121,7 @@ namespace SaiKoLily
 
         DiceEventImpl::DiceEventImpl(std::vector<std::pair<DiceConfig, uint32_t>>& _term_configs, std::seed_seq &_seq, std::mt19937_64 &_rng, std::string_view _player, int64_t constant_offset) : rng(_rng), dice_count(_term_configs.size())
         {
-            auto now = std::chrono::system_clock::now();
-            std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-            time_info = *(std::localtime(&now_time_t));
+            time_info = std::chrono::system_clock::now();
 
             playerID = _player;
 
@@ -226,7 +220,7 @@ namespace SaiKoLily
             return playerID;
         }
 
-        std::tm DiceEventImpl::GetTimeInfo()
+        TimePoint DiceEventImpl::GetTimeInfo()
         {
             return time_info;
         }

@@ -576,12 +576,7 @@ namespace SaiKoLily::CheckCommand
                             break;
                         }
 
-                        std::string time_str = std::format("{}", event->GetTimeInfo().tm_year + 1900) + "-" +
-                                               std::format("{:02}", event->GetTimeInfo().tm_mon + 1) + "-" +
-                                               std::format("{:02}", event->GetTimeInfo().tm_mday) + " " +
-                                               std::format("{:02}", event->GetTimeInfo().tm_hour) + ":" +
-                                               std::format("{:02}", event->GetTimeInfo().tm_min) + ":" +
-                                               std::format("{:02}", event->GetTimeInfo().tm_sec);
+                        std::string time_str = std::format("{:%Y-%m-%d %H:%M:%S}", event->GetTimeInfo());
                         auto configs = event->GetConfigTerms();
                         auto results = event->GetPointsList();
 

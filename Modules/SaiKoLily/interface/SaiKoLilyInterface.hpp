@@ -5,6 +5,8 @@
 #include <CommandCore.hpp>
 
 
+using TimePoint = std::chrono::system_clock::time_point;
+
 namespace SaiKoLily
 {
     namespace DiceSystem
@@ -41,7 +43,7 @@ namespace SaiKoLily
             virtual uint32_t GetDiceCount() = 0;
             virtual std::vector<int64_t> GetFaces() = 0;
             virtual std::string GetPlayerID() = 0;
-            virtual std::tm GetTimeInfo() = 0;
+            virtual TimePoint GetTimeInfo() = 0;
             virtual int64_t GetPointsInTotal() = 0;
             virtual int64_t GetOffset() = 0;
             virtual const std::vector<std::vector<Dice>>& GetDiceTerms() const = 0;

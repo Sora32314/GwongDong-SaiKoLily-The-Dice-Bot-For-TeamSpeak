@@ -15,7 +15,7 @@
 
 
 using uint64 = unsigned long long;
-
+using TimePoint = std::chrono::system_clock::time_point;
 
 
 namespace SaiKoLily
@@ -132,7 +132,7 @@ namespace SaiKoLily
             uint32_t GetDiceCount() override;
             std::vector<int64_t> GetFaces() override;
             std::string GetPlayerID() override;
-            std::tm GetTimeInfo() override;
+            TimePoint GetTimeInfo() override;
             int64_t GetPointsInTotal() override;
             int64_t GetOffset() override;
             const std::vector<std::vector<Dice>>& GetDiceTerms() const override;
@@ -171,7 +171,7 @@ namespace SaiKoLily
             uint32_t dice_count = 0;
 
             //其他元信息
-            std::tm time_info;
+            TimePoint time_info;
             std::string playerID;
             //随机数生成器
             std::mt19937_64& rng;
