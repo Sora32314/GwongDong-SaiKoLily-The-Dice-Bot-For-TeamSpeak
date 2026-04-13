@@ -73,10 +73,16 @@ namespace GwongDongFileSystem
     public:
         virtual ~IFileIO() = default;
 
-        virtual void WriteFile(std::string_view content, WriteMode mode) const = 0;
+        virtual void WriteFile(std::string_view content, WriteMode mode) = 0;
         virtual std::string ReadFile() const = 0;
         virtual std::string ReadFile(size_t bytes) const = 0;
         virtual std::string ReadFile(size_t offset, size_t length) const = 0;
+
+        virtual std::string ReadKiloBytes(size_t kiloBytes) const = 0;
+        virtual std::string ReadKiloBytes(size_t kiloBytes, size_t offsetKiloBytes) const = 0;
+
+        virtual std::string ReadBytes(size_t bytes) const = 0;
+        virtual std::string ReadBytes(size_t bytes, size_t offsetBytes) const = 0;
         virtual std::string ExtractMetaData() const = 0;
     };
 
@@ -101,7 +107,7 @@ namespace GwongDongFileSystem
     
 
 
-    //MetaData 被存储在文件尾。
+    //MetaData 被存储在文件头。
     struct FileMetaData
     {
     public:
@@ -116,6 +122,16 @@ namespace GwongDongFileSystem
             _informationLeave = "NULL";
             _extension = "nil";
             _fileType = FileType::RegularFile;
+
+            /*
+            std::string _name;
+            FileTime _createTime;
+            FileTime _modifyTime;
+            std::string _owner;
+            std::string _informationLeave;
+            std::string _extension;
+            FileType _fileType;
+            */
         }
 
         virtual std::string UpdateMetaData()
@@ -145,7 +161,10 @@ namespace GwongDongFileSystem
                     return "Unknown";
                 case FileType::Other:
                     return "Other";
+                default:
+                    throw new std::runtime_error("[GwongDongFileSystem] FileType未定义！");
                 }
+
             }();
 
 
@@ -180,6 +199,11 @@ namespace GwongDongFileSystem
         virtual void SetOwner(std::string_view owner)
         {
             _owner = std::move(owner);
+        }
+
+        virtual void InitCreateTime()
+        {
+            _createTime = std::chrono::system_clock::now();
         }
 
         virtual void SetCreateTime(const FileTime& time)
@@ -250,34 +274,57 @@ namespace GwongDongFileSystem
     class MetaDataSerializer
     {
     public:
-        virtual std::vector<uint8_t> SerializeMetaDataBinary(const FileMetaData& metaData) const
+        static bool HasMetaData(const std::string& content)
+        {
+            return [&]() -> bool
+            {
+                auto beginPos = content.find("&_Begin_& Begin MetaData:");
+                auto endPos = content.find("&_End_& End MetaData");
+
+                if(beginPos == std::string::npos || endPos == std::string::npos || endPos <= beginPos)
+                {
+                    #ifdef _DEBUG
+                        FSLogCallback("[GwongDongFileSystem] HASMETADATA：文件不存在MetaData，文件可能已损坏或你误打开了非该文件系统所管理的文件。", Plugin_Logs::logLevel::warn, true);
+                    #endif
+                    return false;
+                }
+                
+                return true;
+            }();
+        };
+
+        static std::vector<uint8_t> SerializeMetaDataBinary(const FileMetaData& metaData)
         {
 
         };
 
-        virtual FileMetaData DeserializeMetaDataBinary(const std::vector<uint8_t>& data) const
+        static FileMetaData DeserializeMetaDataBinary(const std::vector<uint8_t>& data)
         {
 
         }
 
-        virtual FileMetaData DeserializeMetaDataText(const std::string& content) const
+        static FileMetaData DeserializeMetaDataText(const std::string& content)
         {
             return [&](std::string_view content) 
                 -> FileMetaData
             {
                 FileMetaData metaData;
 
-                auto beginPos = content.find("&_Begin_&");
-                auto endPos = content.find("&_End_&");
+                auto beginPos = content.find("&_Begin_& Begin MetaData:");
+                auto endPos = content.find("&_End_& End MetaData");
 
                 if(beginPos == std::string::npos || endPos == std::string::npos || endPos <= beginPos)
                 {
-                    FSLogCallback("[GwongDongFileSystem] 文件不存在MetaData，文件可能已损坏或你误打开了非该文件系统所管理的文件。", Plugin_Logs::logLevel::warn, true);
+                    FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_TEXT：文件不存在MetaData，文件可能已损坏或你误打开了非该文件系统所管理的文件。", Plugin_Logs::logLevel::warn, true);
                     return metaData;
                 }
                 
                 //TODO: 解析MetaData
+                beginPos += std::string("&_Begin_& Begin MetaData:").size();
+                endPos -= 1;
 
+
+                FSLogCallback(std::format("[GwongDongFileSystem] MetaData:{}", content.substr(beginPos, endPos)), Plugin_Logs::logLevel::warn, true);
 
                 return metaData;
             }(content);
@@ -289,15 +336,29 @@ namespace GwongDongFileSystem
     class FileObject : public ITotalFileOperator
     {
     public:
-        FileObject(const Path& path)
+        FileObject(const Path& path, FileMetaData& metaData)
+            : _path(path), _metaData(std::move(metaData))
         {
-            _path = path;
+            std::string res = _metaData.UpdateMetaData();
+
+            #ifdef _DEBUG
+            FSLogCallback(std::format("[GwongDongFileSystem] MetaData:{}", res), Plugin_Logs::logLevel::info, true);
+            #endif
+
+            WriteFile(res, WriteMode::Overwrite);
+        }
+
+        //此构造函数仅用于从已存在的文件创建FileObject实例，MetaData由ExtractMetaData函数解析获得。
+        FileObject(const Path& path)
+            : _path(path)
+        {
+            //从路径中解析已存在的MetaData
+            _metaData = MetaDataSerializer::DeserializeMetaDataText(ExtractMetaData());
         }
 
         mutable std::mutex _mutex;
         
     public:
-
         //INFO
 
         size_t GetSize() const noexcept override
@@ -317,34 +378,77 @@ namespace GwongDongFileSystem
 
         FileTime GetFileCreateTime() const override
         {
-            // #ifdef _GetCreationTime_From_MetaData
-                
-                //auto MetaData = 
-            
+            auto MetaDataString = ExtractMetaData();
+            FileMetaData metaData = MetaDataSerializer::DeserializeMetaDataText(MetaDataString);
 
 
-
-            // #endif
+            return metaData.GetCreateTime();
         }
 
         FileTime GetFileModifyTime() const override
         {
-            auto last_write = fs::last_write_time(_path);
-            auto res = std::chrono::clock_cast<std::chrono::system_clock>(last_write);
+            auto MetaDataString = ExtractMetaData();
+            FileMetaData metaData = MetaDataSerializer::DeserializeMetaDataText(MetaDataString);
             
-            return res;
+            return metaData.GetModifyTime();
         }
 
         //IO
 
-        void WriteFile(std::string_view content, WriteMode mode) const override
+        void WriteFile(std::string_view content, WriteMode mode) override
         {
             if(!Exists())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, true);
+                return;
             }
 
-            
+            switch(mode)
+            {
+            case WriteMode::Overwrite:
+            {
+                std::ifstream input(_path, std::ios::in);
+
+                _metaData.SetModifyTime();
+                
+                auto res = ReadKiloBytes(8);
+                std::string finalContent;
+
+                if(MetaDataSerializer::HasMetaData(res))
+                {
+                    auto metaData = MetaDataSerializer::DeserializeMetaDataText(res);
+                    _metaData = std::move(metaData);
+
+                    finalContent = _metaData.UpdateMetaData() + std::string(content);
+                }
+                else
+                {
+                    finalContent = _metaData.UpdateMetaData() + std::string(content);
+                }
+                
+                std::ofstream file(_path, std::ios::out);
+
+                file.write(finalContent.data(), finalContent.size());
+
+                break;
+            }  
+            case WriteMode::Append:
+            {
+                std::ifstream input(_path, std::ios::app | std::ios::in);
+
+                _metaData.SetModifyTime();
+
+                //auto res = ExtractMetaData();
+                break;
+            }
+            case WriteMode::Prepend:
+            {
+                break;
+            }
+            default:
+                FSLogCallback("[GwongDongFileSystem] 不支持的写入模式。", Plugin_Logs::logLevel::warn, true);
+                break;
+            }
 
             {
                 std::lock_guard<std::mutex> lock(_mutex);
@@ -360,8 +464,10 @@ namespace GwongDongFileSystem
         {
             if(!Exists())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, true);
+                return "";
             }
+
             std::string content;
             
             {
@@ -379,7 +485,8 @@ namespace GwongDongFileSystem
         {
             if(!Exists())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, true);
+                return "";
             }
 
             std::string content;
@@ -399,7 +506,8 @@ namespace GwongDongFileSystem
         {
             if(!Exists())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, true);
+                return "";
             }
 
             std::string content;
@@ -415,47 +523,120 @@ namespace GwongDongFileSystem
             return content.substr(offset, length);
         }
 
+        std::string ReadKiloBytes(size_t bytes) const override
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            std::ifstream inFile(_path, std::ios::in);
+
+            const size_t MAX_CHUNK_SIZE = bytes * 1024;
+            std::string buffer(MAX_CHUNK_SIZE, '\0');
+
+            inFile.read(buffer.data(), MAX_CHUNK_SIZE);
+
+            std::streamsize bytesRead = inFile.gcount(); 
+
+            buffer.resize(bytesRead);
+
+            #ifdef _DEBUG
+            FSLogCallback(std::format("[GwongDongFileSystem] ReadKiloBytes - 实际读取字节:{} 内容:{}", bytesRead, buffer), Plugin_Logs::logLevel::info, true);
+            #endif
+
+            return buffer;
+        }
+
+        std::string ReadKiloBytes(size_t bytes, size_t offsetBytes) const override
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            std::ifstream inFile(_path, std::ios::in);
+
+            inFile.seekg(offsetBytes, std::ios::beg);
+
+            const size_t MAX_CHUNK_SIZE = bytes * 1024;
+
+            std::string buffer(MAX_CHUNK_SIZE, '\0');
+            inFile.read(buffer.data(), MAX_CHUNK_SIZE);
+
+            std::streamsize bytesRead = inFile.gcount(); 
+
+            buffer.resize(bytesRead);
+
+            #ifdef _DEBUG
+            FSLogCallback(std::format("[GwongDongFileSystem] ReadKiloBytes - 实际读取字节:{} 内容:{}", bytesRead, buffer), Plugin_Logs::logLevel::info, true);
+            #endif
+
+            return buffer;
+        }
+
+        std::string ReadBytes(size_t bytes) const override
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            std::ifstream inFile(_path, std::ios::in);
+
+            std::string buffer(bytes, '\0');
+            inFile.read(buffer.data(), bytes);
+
+            std::streamsize bytesRead = inFile.gcount();
+
+            buffer.resize(bytesRead);
+            #ifdef _DEBUG
+            FSLogCallback(std::format("[GwongDongFileSystem] ReadBytes - 读取字节:{} 内容:{}", bytesRead, buffer), Plugin_Logs::logLevel::info, true);
+            #endif
+
+            return buffer;
+        }
+
+        std::string ReadBytes(size_t bytes, size_t offsetBytes) const override
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            std::ifstream inFile(_path, std::ios::in);
+
+            inFile.seekg(offsetBytes, std::ios::beg);
+
+            std::string buffer(bytes, '\0');
+            inFile.read(buffer.data(), bytes);
+
+            std::streamsize bytesRead = inFile.gcount();
+
+            buffer.resize(bytesRead);
+            #ifdef _DEBUG
+            FSLogCallback(std::format("[GwongDongFileSystem] ReadBytes - 读取字节:{} 内容:{}", bytesRead, buffer), Plugin_Logs::logLevel::info, true);
+            #endif
+
+            return buffer;
+        }
+
         std::string ExtractMetaData() const override
         {
             if(!Exists())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] 无法解析MetaData，文件不存在。", Plugin_Logs::logLevel::info, true);
+                return "";
             }
 
             const std::string metaDataStart = "&_Begin_& Begin MetaData";
             const std::string metaDataEnd = "&_End_& End MetaData";
 
-
-            {
-                std::lock_guard<std::mutex> lock(_mutex);
-
-                std::ifstream inFile(_path, std::ios::in);
-                auto startPos = std::string::npos;
-                auto endPos = std::string::npos;
+            std::string contentHead;
                 
 
-                //只读取前8kb，如果没有找到MetaData则代表该文件不存在MetaData或文件以损坏。
-                const size_t MAX_CHUNK_SIZE = 8192;
-                std::string buffer(MAX_CHUNK_SIZE, '\0');
+            //只读取前8kb，如果没有找到MetaData则代表该文件不存在MetaData或文件以损坏。
+            contentHead = ReadKiloBytes(8);
 
-                //读取文件内容到buffer，并寻找MetaData的起始和结束位置。
-                inFile.read(buffer.data(), MAX_CHUNK_SIZE);
-                startPos = buffer.find(metaDataStart);
-                endPos = buffer.find(metaDataEnd);
+            FSLogCallback(std::format("[GwongDongFileSystem] ExtractMetaData - 前8KB内容:{}", contentHead), Plugin_Logs::logLevel::info, true);
 
-                //如果没有找到MetaData的起始或结束标志，或者结束标志在起始标志之前，则认为文件不存在MetaData。
-                if(startPos == std::string::npos || endPos == std::string::npos || endPos <= startPos)
-                {
-                    FSLogCallback("[GwongDongFileSystem] 文件不存在MetaData，文件可能已损坏或你误打开了非该文件系统所管理的文件。", Plugin_Logs::logLevel::warn, true);
-                    return "";
-                }
+            auto startPos = std::string::npos;
+            auto endPos = std::string::npos;
 
-                std::string metaData = buffer.substr(startPos + metaDataStart.size(), endPos - startPos - metaDataStart.size());
+            startPos = contentHead.find(metaDataStart);
+            endPos = contentHead.find(metaDataEnd);
 
-                return metaData;
+            if(startPos == std::string::npos || endPos == std::string::npos || endPos < startPos)
+            {
+                FSLogCallback("[GwongDongFileSystem] 找不到MetaData。", Plugin_Logs::logLevel::info, true);
+                return "";
             }
-            
-            throw std::runtime_error("[GwongDongFileSystem] 你是怎么到达这里的？！你对ExtractMetaData函数做了什么？！");
+
+            return contentHead.substr(startPos + metaDataStart.size(), endPos - startPos - metaDataStart.size());
         }
 
         //OPERATOR
@@ -464,7 +645,8 @@ namespace GwongDongFileSystem
         {
             if(!Exists())
             {
-                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, false);
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::info, true);
+                return;
             }
 
             fs::remove(_path);
@@ -530,6 +712,7 @@ namespace GwongDongFileSystem
     private:
         //保存path，但是不持有文件实例，文件实例应当由需要时RAII。
         fs::path _path;
+        FileMetaData _metaData;
     };
 
 
@@ -552,17 +735,35 @@ namespace GwongDongFileSystem
     public:
         //内容存储查询
         auto NGetFile(const fs::path& path) const
+        -> std::shared_ptr<ITotalFileOperator>
         {
-            return std::find_if(baseFileArray.begin(), baseFileArray.end(), [&](const auto& TotalFileOperator){
+            std::lock_guard<std::mutex> lock(mutex);
+            auto iter = std::find_if(baseFileArray.begin(), baseFileArray.end(), [&](const auto& TotalFileOperator){
                 return TotalFileOperator->GetPathStr() == path.string();
             });
+
+            if(iter == baseFileArray.end())
+            {
+                return nullptr;
+            }
+
+            return *iter;
         }
 
-        auto NGetFile(const std::string_view name)
+        auto NGetFile(const std::string_view name) const
+        -> std::shared_ptr<ITotalFileOperator>
         {
-            return std::find_if(baseFileArray.begin(), baseFileArray.end(), [&](const auto& TotalFileOperator){
+            std::lock_guard<std::mutex> lock(mutex);
+            auto iter = std::find_if(baseFileArray.begin(), baseFileArray.end(), [&](const auto& TotalFileOperator){
                 return TotalFileOperator->GetFileName() == name;
             });
+
+            if(iter == baseFileArray.end())
+            {
+                return nullptr;
+            }
+
+            return *iter;
         }
 
     public:
@@ -578,15 +779,26 @@ namespace GwongDongFileSystem
                 return nullptr;
             }
 
-            auto ptr = std::make_shared<Ty>(std::forward<Args>(args)...);
+            //MetaData在这里初始化。
+            FileMetaData metaData;
+            metaData.InitCreateTime();
+            metaData.SetModifyTime();
+
+            auto ptr = std::make_shared<Ty>(std::forward<Args>(args)..., std::move(metaData));
             Ty* rawPtr = ptr.get();
 
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                baseFileArray.emplace_back(std::move(ptr));
+                std::ofstream outFile(rawPtr->GetPathStr(), std::ios::out);
+
+                outFile.flush();
+                outFile.close();
+                
             }
 
-            FSLogCallback(std::format("[GwongDongFileSystem] 文件创建成功。\n路径：{}", ptr->GetPathStr()), Plugin_Logs::logLevel::info, true);
+            baseFileArray.emplace_back(std::move(ptr));
+
+            FSLogCallback(std::format("[GwongDongFileSystem] 文件创建成功。\n路径：{}", baseFileArray.back()->GetPathStr()), Plugin_Logs::logLevel::info, true);
             return rawPtr;
         }
 
@@ -596,10 +808,18 @@ namespace GwongDongFileSystem
 
             std::string finalName;
 
+            
             if(path.empty())
             {
                 FSLogCallback("[GwongDongFileSystem] path is empty, will create file at this directory.", Plugin_Logs::logLevel::info, true);
                 path = fs::current_path();
+            }
+
+            if(fs::exists(path) && !fs::is_directory(path))
+            {
+                FSLogCallback("[GwongDongFileSystem] path is not a directory, will create file at this directory.", Plugin_Logs::logLevel::warn, true);
+                path = path.parent_path();
+                
             }
 
             if(name.empty())
@@ -611,8 +831,8 @@ namespace GwongDongFileSystem
                     
                     finalName = []() {
                         auto now = std::chrono::system_clock::now();
-                        auto now_ns = std::chrono::time_point_cast<std::chrono::nanoseconds>(now);
-                        auto timestamp = now_ns.time_since_epoch().count();
+                        auto now_mill = std::chrono::time_point_cast<std::chrono::milliseconds>(now);
+                        auto timestamp = now_mill.time_since_epoch().count();
 
                         thread_local std::mt19937_64 rng{std::random_device{}()};
                         std::uniform_int_distribution<uint64_t> dist;
@@ -646,46 +866,79 @@ namespace GwongDongFileSystem
 
             path.append(finalName).replace_extension(fileNameExtension);
 
+            FSLogCallback(std::format("[GwongDongFileSystem] 正在创建文件。\n路径：{}", path.string()), Plugin_Logs::logLevel::info, true);
+
+            //MetaData在这里初始化。
+            FileMetaData metaData;
+            metaData.InitCreateTime();
+            metaData.SetModifyTime();
+
+    
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                auto ptr = std::make_shared<FileObject>(std::forward<fs::path>(path));
-                baseFileArray.emplace_back(std::move(ptr));
-                std::ofstream outFile(path);
+                
+                std::ofstream outFile(path, std::ios::out);
+                outFile.flush();
+                outFile.close();
+                auto ptr = std::make_shared<FileObject>(std::forward<fs::path>(path), metaData);
 
-                FSLogCallback(std::format("[GwongDongFileSystem] 文件创建成功。\n路径：{}", ptr->GetPathStr()), Plugin_Logs::logLevel::info, true);
+                baseFileArray.emplace_back(std::move(ptr));
+                FSLogCallback(std::format("[GwongDongFileSystem] 文件创建成功。\n路径：{}", baseFileArray.back()->GetPathStr()), Plugin_Logs::logLevel::info, true);
             }
-            
+
         }
         
-        void IOBase()
+        void AddFile(std::shared_ptr<ITotalFileOperator> file)
         {
-            
+            std::lock_guard<std::mutex> lock(mutex);
+            baseFileArray.emplace_back(std::move(file));
+        }
+
+        void AddFile(fs::path& path)
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            baseFileArray.emplace_back(std::make_shared<FileObject>(std::forward<fs::path>(path)));
+        }
+
+        void InputBase(fs::path& path, std::string_view content, WriteMode mode) const
+        {
+            auto file = NGetFile(path);
+
+            if(file == nullptr)
+            {
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::warn, true);
+                return;
+            }
+
+            file->WriteFile(content, mode);
+
+            FSLogCallback(std::format("[GwongDongFileSystem] 文件写入成功。\n路径：{}", path.string()), Plugin_Logs::logLevel::info, true);
         }
 
         void NRenameFile(const fs::path& path, std::string_view newName) 
         {
             auto file = NGetFile(path);
 
-            if(file == baseFileArray.end())
+            if(file == nullptr)
             {
                 FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::warn, true);
                 return;
             }
 
-            file->get()->RenameTo(newName);
+            file->RenameTo(newName);
         }
         
         void NDeleteFile(const fs::path& path)
         {
             auto file = NGetFile(path);
 
-            if(file == baseFileArray.end())
+            if(file == nullptr)
             {
                 FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::warn, true);
                 return;
             }
 
-            file->get()->RemoveFile();
+            file->RemoveFile();
 
             FSLogCallback(std::format("[GwongDongFileSystem] 文件删除成功。\n路径：{}", path.string()), Plugin_Logs::logLevel::info, true);
         }
@@ -694,13 +947,13 @@ namespace GwongDongFileSystem
         {
             auto file = NGetFile(from);
 
-            if(file == baseFileArray.end())
+            if(file == nullptr)
             {
                 FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::warn, true);
                 return;
             }
 
-            file->get()->Copy(to);
+            file->Copy(to);
 
             FSLogCallback(std::format("[GwongDongFileSystem] 复制文件:{} -> {}。", from.string(), to.string()), Plugin_Logs::logLevel::info, true);
         }
@@ -709,13 +962,13 @@ namespace GwongDongFileSystem
         {
             auto file = NGetFile(from);
 
-            if(file == baseFileArray.end())
+            if(file == nullptr)
             {
                 FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::warn, true);
                 return;
             }
 
-            file->get()->MoveTo(to);
+            file->MoveTo(to);
 
             FSLogCallback(std::format("[GwongDongFileSystem] 移动文件:{} -> {}。", from.string(), to.string()), Plugin_Logs::logLevel::info, true);
         }
@@ -733,9 +986,22 @@ namespace GwongDongFileSystem
             fs::remove_all(path);
         }
 
-        auto& NGetFileArray() const
+        auto& NGetFileArray() const noexcept
         {
             return baseFileArray;
+        }
+
+        void SetMetaData(const fs::path& path, const FileMetaData& metaData)
+        {
+            auto file = NGetFile(path);
+
+            if(file == nullptr)
+            {
+                FSLogCallback("[GwongDongFileSystem] 文件不存在。", Plugin_Logs::logLevel::warn, true);
+                return;
+            }
+
+            file->WriteFile("", WriteMode::Append);
         }
 
     private:
