@@ -178,9 +178,9 @@ namespace GwongDongFileSystem
             metaData += "Extension: " + _extension + "\n";
             metaData += std::string("&_End_& End MetaData\n");
 
-            if(sizeof(metaData) > 4096)
+            if(metaData.size() > 4096)
             {
-                FSLogCallback(std::format("[GwongDongFileSystem] MetaData大小超过了4096字节，当前大小为{}字节。请精简MetaData内容！", sizeof(metaData)), Plugin_Logs::logLevel::err, true);
+                FSLogCallback(std::format("[GwongDongFileSystem] MetaData大小超过了4096字节，当前大小为{}字节。请精简MetaData内容！", metaData.size()), Plugin_Logs::logLevel::err, true);
             }
 
             return metaData;
@@ -393,8 +393,8 @@ namespace GwongDongFileSystem
             return metaData.GetModifyTime();
         }
 
-        //IO
 
+        //TODO: 优化IO分块或直接使用mmap进行内存映射。
         void WriteFile(std::string_view content, WriteMode mode) override
         {
             if(!Exists())
@@ -407,8 +407,6 @@ namespace GwongDongFileSystem
             {
             case WriteMode::Overwrite:
             {
-                std::ifstream input(_path, std::ios::in);
-
                 _metaData.SetModifyTime();
                 
                 auto res = ReadKiloBytes(8);
@@ -426,19 +424,61 @@ namespace GwongDongFileSystem
                     finalContent = _metaData.UpdateMetaData() + std::string(content);
                 }
                 
-                std::ofstream file(_path, std::ios::out);
+                std::ofstream file(_path, std::ios::out | std::ios::trunc);
 
                 file.write(finalContent.data(), finalContent.size());
 
+                file.flush();
                 break;
             }  
             case WriteMode::Append:
             {
-                std::ifstream input(_path, std::ios::app | std::ios::in);
+                //8kb分块读取
+                auto chunk_bytes = ReadKiloBytes(8);
+                const std::string metaDataEnd = "&_End_& End MetaData";
+                auto end_pos = chunk_bytes.find(metaDataEnd) + metaDataEnd.size();
 
-                _metaData.SetModifyTime();
+                if(MetaDataSerializer::HasMetaData(chunk_bytes))
+                {
+                    auto cachedMetaData = MetaDataSerializer::DeserializeMetaDataText(chunk_bytes);
 
-                //auto res = ExtractMetaData();
+                    std::string chunk_without_metadata = chunk_bytes.substr(end_pos, chunk_bytes.size());
+
+                    _metaData = std::move(cachedMetaData);
+
+                    chunk_bytes = _metaData.UpdateMetaData() + chunk_without_metadata;
+
+                    {
+                        std::lock_guard<std::mutex> lock(_mutex);
+                        std::fstream file(_path, std::ios::in | std::ios::out);
+                        file.seekp(0, std::ios::beg);
+                        file.write(chunk_bytes.data(), chunk_bytes.size());
+
+                        file.flush();
+                    }
+                }
+                else
+                {
+                    auto cachedMetaData = _metaData.UpdateMetaData();
+
+                    {
+                        std::lock_guard<std::mutex> lock(_mutex);
+                        std::fstream file(_path, std::ios::in | std::ios::out);
+                        file.seekp(0, std::ios::beg);
+                        file.write(cachedMetaData.data(), cachedMetaData.size());
+
+                        file.flush();
+                    }
+
+                }
+                
+                std::lock_guard<std::mutex> lock(_mutex);
+
+                std::ofstream file(_path, std::ios::out | std::ios::app);
+
+                file.write(content.data(), content.size());
+
+                file.flush();
                 break;
             }
             case WriteMode::Prepend:
@@ -448,15 +488,6 @@ namespace GwongDongFileSystem
             default:
                 FSLogCallback("[GwongDongFileSystem] 不支持的写入模式。", Plugin_Logs::logLevel::warn, true);
                 break;
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(_mutex);
-                std::ofstream file(_path, std::ios::out);
-                
-                auto finalContent = std::string(content);
-
-                file.write(finalContent.data(), finalContent.size());
             }
         }
         

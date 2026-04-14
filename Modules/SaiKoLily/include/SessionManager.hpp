@@ -695,41 +695,44 @@ namespace Sessions::SessionsCommandTemp
                         break;
                     case TermType::SaveToFile:
                         {
-                            GwongDongFileSystem::FileObject file(fs::current_path());
-                            
-                            context.Log(std::format("Enter SaveToFile."), Plugin_Logs::logLevel::info, true);
-
                             try
                             {
+                                fs::path path;
                                 switch(term.args.size())
                                 {
                                 case 0: 
                                     {
-                                        fs::path path;
                                         GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, "", "");
                                         break;
                                     }
                                 case 1:
                                     {
-                                        fs::path path = term.args[0];
+                                        path = term.args[0];
                                         GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, "", "");
                                         break;
                                     }
                                 case 2:
                                     {
-                                        fs::path path = term.args[0];
+                                        path = term.args[0];
                                         GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, term.args[1], "");
                                         break;
                                     }
                                 case 3:
                                     {
-                                        fs::path path = term.args[0];
+                                        path = term.args[0];
                                         GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, term.args[1], term.args[2]);
                                         break;
                                     }
                                 default: 
                                     return "SessionsSaveToFile: 参数过多或过少！";
                                 }
+
+                                const auto& List = manager->GetDiceSystem(context)->GetDiceEventListConst();
+                                
+
+                                //GwongDongFileSystem::FileManager::GetInstance().InputBase(path, , GwongDongFileSystem::WriteMode::Overwrite);
+
+
                             }
                             catch(const std::exception& e)
                             {
