@@ -323,31 +323,6 @@ namespace Sessions::SessionsCommandTemp
                 WorkingSession = manager->GetSession(method, std::to_string(UserSelectedSession)).value_or(nullptr);
             }
 
-            //获取工作Session的Lambda函数包装
-            // std::function<std::optional<Sessions::SessionTemp::Session *>(Sessions::SessionFetchMethod& method, std::string_view arg)> GetWorkingSession = [&](Sessions::SessionFetchMethod& method, std::string_view arg) 
-            // {
-            //     if(UserSelectedSession == 0)
-            //     {
-            //         if(method == Sessions::SessionFetchMethod::Creator)
-            //         {
-            //             return manager->GetSession(method, context.GetCallingUserName());
-            //         }
-            //         else if(method == Sessions::SessionFetchMethod::Index)
-            //         {
-            //             return manager->GetSession(method, arg);
-            //         }
-            //         else if(method == Sessions::SessionFetchMethod::Title)
-            //         {
-            //             return manager->GetSession(method, arg);
-            //         }
-            //         else
-            //         {
-            //             //默认使用创建者
-            //             return manager->GetSession(method, context.GetCallingUserName());
-            //         }
-            //     }
-            // };
-
             //将所有Select移动至开头防止多次重复定义。
 
             auto Copy_Of_Terms = terms;
@@ -693,34 +668,35 @@ namespace Sessions::SessionsCommandTemp
                             context.SendResult(std::format("历史记录获取成功:\n{}", result), Command_Core::MessageTarget::CurrentChannel);
                         }
                         break;
-                    case TermType::SaveToFile:
+                    case TermType::SaveToFile: 
                         {
                             try
                             {
+                                auto& FileManagerHandler = GwongDongFileSystem::FileManager::GetInstance();
                                 fs::path path;
                                 switch(term.args.size())
                                 {
                                 case 0: 
                                     {
-                                        GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, "", "");
+                                        path = FileManagerHandler.NMakeFile(path, "", "");
                                         break;
                                     }
                                 case 1:
                                     {
                                         path = term.args[0];
-                                        GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, "", "");
+                                        path = FileManagerHandler.NMakeFile(path, "", "");
                                         break;
                                     }
                                 case 2:
                                     {
                                         path = term.args[0];
-                                        GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, term.args[1], "");
+                                        path = FileManagerHandler.NMakeFile(path, term.args[1], "");
                                         break;
                                     }
                                 case 3:
                                     {
                                         path = term.args[0];
-                                        GwongDongFileSystem::FileManager::GetInstance().NMakeFile(path, term.args[1], term.args[2]);
+                                        path = FileManagerHandler.NMakeFile(path, term.args[1], term.args[2]);
                                         break;
                                     }
                                 default: 
@@ -728,11 +704,22 @@ namespace Sessions::SessionsCommandTemp
                                 }
 
                                 const auto& List = manager->GetDiceSystem(context)->GetDiceEventListConst();
+                                std::string resultStr;
+
+                                std::string time;
+                                //获取全部历史记录
+                                for(auto&& event : List)
+                                {
+                                    //时间获取
+                                    time.clear();
+                                    time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
+                                    
+                                    resultStr += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
+                                    resultStr += std::format("{}\n", event->ParseExpressionStr());
+                                    resultStr += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
+                                }
                                 
-
-                                //GwongDongFileSystem::FileManager::GetInstance().InputBase(path, , GwongDongFileSystem::WriteMode::Overwrite);
-
-
+                                FileManagerHandler.InputBase(path, resultStr, GwongDongFileSystem::WriteMode::Overwrite);
                             }
                             catch(const std::exception& e)
                             {
@@ -926,6 +913,61 @@ namespace Sessions::SessionsCommandTemp
         
         };
         
+
+
+        //获取历史记录
+        std::string GetHistory(Sessions::SessionsCommandTemp::ExpressionTerm &term, Sessions::SessionManagerTemp::SessionManager* manager, Command_Core::ICommandContext& context)
+        {
+            const auto& List = manager->GetDiceSystem(context)->GetDiceEventListConst();
+
+            std::string result;
+            std::string time;
+
+
+            context.SendResult(std::format("历史记录总数: {}", List.size()), Command_Core::MessageTarget::CurrentChannel);
+            if(term.args.size() < 1)
+            {
+                //默认列出20条
+                size_t count = 20;
+                for(auto&& event : List)
+                {
+                    if(count-- == 0)
+                        break;
+                    
+                    //time
+                    time.clear();
+                    time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
+
+                    result += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
+                    result += std::format("{}\n", event->ParseExpressionStr());
+                    result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
+                }
+            }
+            else if(term.args.size() == 1)
+            {
+                auto count = std::stoi(term.args[0]);
+                for(auto&& event : List)
+                {
+                    if(count-- == 0)
+                        break;
+                    
+                    //time
+                    time.clear();
+                    time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
+
+                    result += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
+                    result += std::format("{}\n", event->ParseExpressionStr());
+                    result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
+                }
+            }
+            else
+            {
+                return "SessionsHistory: 参数过多或过少！";
+            }
+
+            context.SendResult(std::format("历史记录获取成功:\n{}", result), Command_Core::MessageTarget::CurrentChannel);
+            return result;
+        }
     };
 }
 
