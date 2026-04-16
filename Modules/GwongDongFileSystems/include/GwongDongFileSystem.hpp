@@ -596,7 +596,7 @@ namespace GwongDongFileSystem
                 
                 std::lock_guard<std::mutex> lock(_mutex);
 
-                std::ofstream file(_path, std::ios::out | std::ios::app);
+                std::ofstream file(_path, std::ios::out | std::ios::ate);
 
                 file.write(content.data(), content.size());
 

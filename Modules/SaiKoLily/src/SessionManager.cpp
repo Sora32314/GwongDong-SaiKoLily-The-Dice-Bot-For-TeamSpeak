@@ -651,13 +651,31 @@ namespace Sessions::SessionManager
             ID userID = context.GetCallingUserID();
             std::string userUUID(context.GetUserUUID(context.GetCallingUserID()));
 
+            bool isUserSelectedSession = each_user_selected_sessions.contains(userUUID);
+
             //第一优先级
-            if(each_user_selected_sessions.contains(userUUID))
+            if(isUserSelectedSession)
             {
                 targetSession_id = each_user_selected_sessions.at(userUUID);
                 cmds_logCallback(std::format("用户:{}({})选择了Session:{}({})，将使用该Session的骰子系统！", context.GetCallingUserName(), context.GetCallingUserID(), targetSession_id, sessions.at(targetSession_id)->GetTitle()), Plugin_Logs::logLevel::info, false);
             }
-            else    //第二优先级，如果当前频道绑定Session，则使用绑定的Session
+            else if(!isUserSelectedSession)   //第二优先级，如果当前用户绑定Session，则使用绑定的Session
+            {
+                //获取用户加入的Session
+                for(const auto& session : GetSessionsList())
+                {
+                    for(const auto& user : session.get().GetUsers())
+                    {
+                        if(user.userID == userID)
+                        {
+                            targetSession_id = session.get().GetID();
+                            cmds_logCallback(std::format("用户:{}({})在Session:{}({})中，将使用该Session的骰子系统！", context.GetCallingUserName(), context.GetCallingUserID(), targetSession_id, session.get().GetTitle()), Plugin_Logs::logLevel::info, false);
+                            break;
+                        }
+                    }
+                }
+            }
+            else   //第三优先级，如果当前频道绑定Session，则使用绑定的Session
             {
                 Sessions::SessionFetchMethod method = Sessions::SessionFetchMethod::Index;
                 if(SessionManagerImpl::GetSession(method, std::to_string(context.GetChannelID())).has_value())
