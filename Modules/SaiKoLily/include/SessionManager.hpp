@@ -26,42 +26,95 @@ using IDiceSystem = SaiKoLily::DiceSystem::IDiceSystem;
 
 namespace Sessions
 {
+    /**
+     * @brief 会话模块日志回调类型定义
+     *
+     * 回调函数用于将会话管理模块内部日志输出到外部日志系统。
+     *
+     * @param message 日志消息
+     * @param level 日志等级
+     * @param nowFlush 是否立即刷新
+     */
     using Sessions_LogCallback = std::function<void(const std::string&, Plugin_Logs::logLevel, bool nowFlush)>;
+    
+    /**
+     * @brief 设置会话模块的全局日志回调
+     *
+     * @param callback 日志回调函数
+     */
     void SetLogCallback(Sessions_LogCallback callback);
 
-
+    /**
+     * @brief 会话获取方式枚举
+     *
+     * 定义根据何种属性来查找或获取一个会话对象。
+     */
     extern enum class SessionFetchMethod
     {
-        Title = 1,
-        Creator,
-        Index
+        Title = 1,   ///< 按会话标题查找
+        Creator,     ///< 按创建者名称查找
+        Index        ///< 按会话ID（索引）查找
     } GetSessionBy;
 
+    /**
+     * @brief 会话列表过滤方式枚举
+     *
+     * 定义列出会话列表时依据的属性过滤条件。
+     */
     extern enum class SessionListFilter
     {
-        Creator = 1,
-        Server,
-        Channel,
-        Auto
+        Creator = 1, ///< 按创建者过滤
+        Server,      ///< 按所在服务器过滤
+        Channel,     ///< 按所在频道过滤
+        Auto         ///< 自动选择过滤方式
     } GetSessionListBy;
 
+    /**
+     * @brief 会话类型枚举
+     *
+     * 描述会话的可见性与作用范围。
+     */
     enum class SessionsType
     {
-        Private = 1,
-        Channel = 2,
-        Server = 3
+        Private = 1, ///< 私聊会话（仅参与者可见）
+        Channel = 2, ///< 频道会话（频道内可见）
+        Server = 3   ///< 服务器会话（整个服务器可见）
     };
 
-    //用户管理接口类
+    /**
+     * @brief 用户管理接口类
+     *
+     * 提供从用户标识符（ID）与用户名称之间的互相查询能力。
+     * 用于在命令解析时快速获取用户信息。
+     */
     class IUserManager
     {
     public:
         virtual ~IUserManager() = default;
-        //通过ID获取用户名称
+
+        /**
+         * @brief 通过用户ID获取用户名称
+         *
+         * @param ServerConnectionHandler 服务器连接句柄
+         * @param userID 用户唯一标识符
+         * @return 对应的用户名称，若未找到则返回空字符串
+         */
         virtual std::string GetUserName(uint64_t ServerConnectionHandler,ID userID) = 0;
-        //通过用户名查询ID
+
+        /**
+         * @brief 通过用户名（支持部分匹配）搜索用户ID
+         *
+         * @param ServerConnectionHandler 服务器连接句柄
+         * @param userName 待搜索的用户名子串
+         * @return 匹配的用户ID到用户名的映射表
+         */
         virtual std::unordered_map<ID, std::string> SearchUserID(uint64_t ServerConnectionHandler, std::string_view userName) = 0;
-        //获取所有用户以及对应ID
+        
+        /**
+         * @brief 获取所有已知用户及其对应ID
+         *
+         * @return 所有用户的ID到名称映射表
+         */
         virtual std::unordered_map<ID, std::string> GetAllUsers() = 0;
     };
 
@@ -69,7 +122,19 @@ namespace Sessions
 
 namespace Sessions::SessionTemp
 {
-    //Session
+    /**
+     * @brief 会话抽象接口（临时命名空间）
+     *
+     * `Session` 代表一个独立的交互上下文，例如一个跑团房间或一个多人游戏会话。
+     * 该接口定义了会话的基本属性访问器与修改器，以及用户/管理员管理方法。
+     *
+     * 每个会话拥有独立的骰子系统实例（通过 `GetDiceSystem()` 获取）。
+     *
+     * @note 该接口禁止拷贝，确保会话资源的唯一所有权。
+     *       实际对象由会话管理器创建。
+     *
+     * @see SessionManagerTemp::SessionManager
+     */
     class Session
     {
     public:
@@ -115,9 +180,19 @@ namespace Sessions::SessionTemp
         virtual void RemoveAdmins(std::vector<Command_Core::Admin> admins) = 0;
 
 
+        /**
+         * @brief 检查用户是否已存在于当前会话中
+         *
+         * @param user 待检查的用户对象
+         * @return 若用户不存在于会话中则返回 true，否则返回 false
+         */
         virtual bool DistinctUsers(Command_Core::User user) = 0;
 
-        //获取骰子系统
+        /**
+         * @brief 获取此会话绑定的骰子系统实例
+         *
+         * @return 指向 `IDiceSystem` 的独占指针的引用
+         */
         virtual std::unique_ptr<IDiceSystem>& GetDiceSystem() = 0;
         
     };
@@ -132,6 +207,24 @@ namespace Sessions::SessionManagerTemp
 
     //SessionManager
     //TODO:修改SessionManager为单例模式
+
+    /**
+     * @brief 会话管理器抽象接口（临时命名空间）
+     *
+     * `SessionManager` 负责管理所有活动会话的生命周期，并提供基于不同策略的会话获取方法。
+     * 它是连接用户命令与具体会话对象的桥梁，同时也是 `IDiceContextProvider` 的天然实现者。
+     *
+     * 主要功能：
+     * - **会话生命周期管理**：`CreateSession`、`EndSession`、`InitSession`
+     * - **用户/管理员管理**：`AddUser`、`RemoveUser`、`SetAdmin` 等
+     * - **会话获取**：通过 `GetSession` / `GetSessionsList` 按多种方式查找
+     * - **用户选择状态管理**：维护一个从用户 UUID 到当前选中会话 ID 的映射
+     *
+     * @note 该接口位于 `SessionManagerTemp` 命名空间，表明其设计可能随会话模块重构而变化。
+     *       允许移动构造/赋值，以支持工厂返回或容器存储。
+     *
+     * @see Session, SessionFetchMethod, SaiKoLily::IDiceContextProvider
+     */
     class SessionManager : public SaiKoLily::IDiceContextProvider
     {
     public:
@@ -143,37 +236,210 @@ namespace Sessions::SessionManagerTemp
         SessionManager(const SessionManager&) = delete;
         SessionManager& operator=(const SessionManager&) = delete;
 
+    public:
+
+        // ----- 生命周期管理 -----
+        /**
+         * @brief 创建一个新的会话
+         *
+         * @param context 命令上下文，用于获取创建者信息及日志
+         * @return 新创建会话的唯一标识符（ID）
+         */
         virtual ID CreateSession(const Command_Core::ICommandContext& context) = 0;
+
+        /**
+         * @brief 结束并销毁指定会话
+         *
+         * @param sessionID 待销毁的会话 ID
+         */
         virtual void EndSession(ID sessionID) = 0;
+
+        /**
+         * @brief 初始化已创建但尚未配置的会话
+         *
+         * 通常在 `CreateSession` 之后调用，用于设置标题、描述等元数据。
+         *
+         * @param sessionID 会话 ID
+         * @param context 命令上下文
+         * @param title 会话标题
+         * @param description 会话描述
+         * @return 初始化成功返回 true，否则返回 false
+         */
         virtual bool InitSession(ID sessionID, const Command_Core::ICommandContext& context, std::string_view title, std::string_view description) = 0;
+        
+        // ----- 持久化 -----
+        /**
+         * @brief 保存指定会话的配置信息
+         *
+         * @param sessionID 会话 ID
+         */
         virtual void SaveSession(ID sessionID) = 0;
+
+        /**
+         * @brief 加载指定会话的配置信息
+         *
+         * @param sessionID 会话 ID
+         * @return 加载成功返回 true，否则返回 false
+         */
         virtual bool LoadSession(ID sessionID) = 0;
+
+        // ----- 用户与管理员管理 -----
+
+        /**
+         * @brief 添加用户到指定会话
+         *
+         * @param sessionID 会话 ID
+         * @param user 待添加的用户对象
+         * @param context 命令上下文
+         * @return 添加成功返回 true，否则返回 false
+         */
         virtual bool AddUser(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) = 0;
+
+        /**
+         * @brief 移除用户从指定会话
+         *
+         * @param sessionID 会话 ID
+         * @param user 待移除的用户对象
+         * @param context 命令上下文
+         * @return 移除成功返回 true，否则返回 false
+         */
         virtual bool RemoveUser(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) = 0;
+
+        /**
+         * @brief 设置用户为管理员
+         *
+         * @param sessionID 会话 ID
+         * @param user 待设置管理员的用户对象
+         * @param context 命令上下文
+         * @return 设置成功返回 true，否则返回 false
+         */
         virtual bool SetAdmin(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) = 0;
+
+        /**
+         * @brief 移除会话中的管理员
+         *
+         * @param sessionID 会话 ID
+         * @param user 待移除的管理员的用户对象
+         * @param context 命令上下文
+         * @return 移除成功返回 true，否则返回 false
+         */
         virtual bool RemoveAdmin(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) = 0;
+
+        /**
+         * @brief 获取指定会话中的所有用户
+         *
+         * @param sessionID 会话 ID
+         * @param context 命令上下文
+         * @return 包含所有用户的向量
+         */
         virtual std::vector<Command_Core::User> GetUsers(ID sessionID, const Command_Core::ICommandContext& context)  = 0;
+
+        /**
+         * @brief 获取指定会话中的所有管理员
+         *
+         * @param sessionID 会话 ID
+         * @param context 命令上下文
+         * @return 包含所有管理员的用户向量
+         */
         virtual std::vector<Command_Core::Admin> GetAdmins(ID sessionID, const Command_Core::ICommandContext& context) = 0;
+
+        /**
+         * @brief 获取当前所有已经存在的会话ID。
+         *
+         * @param context 命令上下文
+         * @return 包含所有会话ID的向量
+         */
         virtual std::vector<ID> GetSessionLists () = 0;
+
+        /**
+         * @brief 暂停指定会话的活动状态
+         * 
+         * @param sessionID 需要被暂停的会话ID
+         */
         virtual void PauseSession(ID sessionID) = 0;
+
+        /**
+         * @brief 恢复指定会话的活动状态
+         * 
+         * @param sessionID 需要被恢复的会话ID
+         */
         virtual void ResumeSession(ID sessionID) = 0;
 
 
-        //功能函数
+        // ----- 用户选择状态 -----
+
+        /**
+         * @brief 获取用户 UUID 到当前选中会话 ID 的映射表（只读）
+         *
+         * 该映射记录了每个用户当前“激活”的会话，用于支持 `SessionFetchMethod::Selected` 查询。
+         *
+         * @return 映射的常量引用
+         */
         virtual const std::unordered_map<std::string, ID>& GetSelectionOfSession() const = 0;
+
+        /**
+         * @brief 用户选择（激活）一个会话
+         *
+         * 将用户与指定会话关联，后续命令若未明确指定会话，将默认操作此会话。
+         *
+         * @param session 被选择的会话对象
+         * @param user 执行选择的用户
+         * 
+         * @warning 选择会话前应确保用户已加入该会话，否则可能导致不一致状态。
+         * @warning 选择会话优先级：1. 用户主动选择会话 > 2.用户加入会话自动选择最后加入的会话 > 3.频道绑定的会话
+         */
         virtual void UserSelectSession(const SessionTemp::Session& session, const Command_Core::User& user) = 0;
+
+        /**
+         * @brief 用户取消选择（取消激活）一个会话
+         *
+         * 取消用户与指定会话的关联，后续命令若未明确指定会话，将默认操作其他会话。
+         *
+         * @param session 被取消选择的会话对象
+         * @param user 执行取消选择的用户
+         */
         virtual void UserUnselectSession(const SessionTemp::Session& session, const Command_Core::User& user) = 0;
 
-        //传递消息
+        // ----- 实现 IDiceContextProvider -----
+        
+        /**
+         * @brief 根据命令上下文获取对应的骰子系统实例
+         *
+         * 根据用户当前选中的会话、用户所在的会话、频道绑定的会话等优先级规则，
+         * 查找并返回当前上下文关联的骰子系统。
+         *
+         * @param context 命令执行上下文
+         * @return 指向关联 `IDiceSystem` 的指针，若无关联则返回 `nullptr`
+         */
         SaiKoLily::DiceSystem::IDiceSystem* GetDiceSystem(const Command_Core::ICommandContext& context) override = 0;
 
     public:
 
-        //by Creator, Server, Channel
+        // ----- 会话查询（多种过滤方式）-----
+
+        /**
+         * @brief 根据过滤方式获取会话列表
+         *
+         * @param method 过滤方式（按创建者(Creator)、服务器(Server)、频道(Channel)）
+         * @param arg 用于参与过滤的参数（如创建者名称、服务器名称等）
+         * @return 匹配的会话引用包装器向量
+         */
         virtual std::vector<std::reference_wrapper<SessionTemp::Session>> GetSessionsList(Sessions::SessionListFilter& method, std::string_view arg) = 0;
-        //by All
+        
+        /**
+         * @brief 获取所有活动会话列表（无过滤）
+         *
+         * @return 所有会话的引用包装器向量
+         */
         virtual std::vector<std::reference_wrapper<SessionTemp::Session>> GetSessionsList() = 0;
-        //by Title, Creator, Index
+
+        /**
+         * @brief 根据获取方式和参数查找单个会话
+         *
+         * @param method 获取方式（按标题(Title)、创建者(Creator)、ID）
+         * @param arg 查找参数
+         * @return 若找到则返回会话指针包装在 `std::optional` 中，否则返回 `std::nullopt`
+         */
         virtual std::optional<SessionTemp::Session*> GetSession(Sessions::SessionFetchMethod& method, std::string_view arg) = 0;
     };
 
@@ -184,13 +450,28 @@ namespace Sessions::SessionManagerTemp
 namespace Sessions::SessionsCommandTemp
 {
     /*
-    创建会话，结束会话，查询会话信息，查询会话列表，搜索会话，激活会话，会话休眠，用户选择会话，用户解除选择会话，用户加入，用户退出，设置管理员，移除管理员，管理员列表，用户列表，绑定会话至，消息记录日志，删除消息记录日志，修改会话，导入会话，导出会话，命令传入。
+        创建会话，结束会话，查询会话信息，查询会话列表，搜索会话，
+        激活会话，会话休眠，用户选择会话，用户解除选择会话，用户加入，
+        用户退出，设置管理员，移除管理员，管理员列表，用户列表，
+        绑定会话至，消息记录日志，删除消息记录日志，修改会话，导入会话，
+        导出会话，命令传入。
     */
+    
+    /**
+     * @brief 会话命令解析项类型枚举
+     *
+     * 对应每个具体的子命令，用于解析和执行。
+     */
     enum class TermType
     {
         Create = 1, End, Status, Info, List, Search, Activate, Rest, Select, UnSelect, UserJoin, UserQuit, AdminsSet, AdminsRemove, AdminsList, UserList, Bind, History, CleanHistory, SaveToFile, Set, Export, Import, Help, Others, NULLCommand
     };
 
+    /**
+     * @brief 会话获取方式字符串到枚举值的映射表
+     * 
+     * 等待后续使用更强大的匹配方法。
+     */
     static std::unordered_map<std::string_view, Sessions::SessionFetchMethod> FetchMethodMap =
     {
         {"Index", Sessions::SessionFetchMethod::Index},
@@ -205,14 +486,28 @@ namespace Sessions::SessionsCommandTemp
         {"C", Sessions::SessionFetchMethod::Creator}
     };
 
-    //唯一性的命令
+    /**
+     * @brief 命令解析项结构体
+     *
+     * 表示解析后的一个子命令及其参数列表。
+     * @warning 唯一性的命令。
+     */
     struct ExpressionTerm
     {
         using Args = std::string;
-        TermType type = TermType::NULLCommand;
-        std::vector<Args> args;
+        TermType type = TermType::NULLCommand; ///< 子命令类型
+        std::vector<Args> args;                ///< 子命令参数列表
     };
 
+
+    /**
+     * @brief 会话命令处理类
+     *
+     * 实现 `ICommandHandler`，负责解析以 "sessions" 或 "ss" 等别名开头的命令，
+     * 并调用 `SessionManager` 执行相应的会话管理操作。
+     *
+     * @see Command_Core::ICommandHandler
+     */
     class SessionsCommand : public Command_Core::ICommandHandler
     {
     public:
@@ -242,9 +537,26 @@ namespace Sessions::SessionsCommandTemp
         }
 
     public:
+
+        /**
+         * @brief 获取关联的会话管理器实例
+         *
+         * @return 指向 `SessionManager` 的原始指针
+         */
         virtual Sessions::SessionManagerTemp::SessionManager* GetSessionsManager() = 0;
 
     protected:
+
+        /**
+         * @brief 解析命令参数字符串为命令项列表
+         *
+         * 将输入的字符串向量（如 ["create", "MyGame", "desc"]）解析为
+         * `ExpressionTerm` 列表（如 `{ TermType::Create, {"MyGame", "desc"} }`）。
+         *
+         * @param exprs 命令参数字符串视图向量
+         * @param context 命令上下文（用于调试日志）
+         * @return 解析后的命令项列表
+         */
         static std::vector<ExpressionTerm> ParserExpression(std::vector<std::string_view> exprs
             #ifdef _Session_DEBUG
             , Command_Core::ICommandContext& context
@@ -309,6 +621,17 @@ namespace Sessions::SessionsCommandTemp
 
             return Terms;
         }
+        
+        /**
+         * @brief 执行解析后的命令项列表
+         *
+         * 遍历命令项，调用 `SessionManager` 的相应接口执行实际操作。
+         *
+         * @param terms 待执行的命令项列表
+         * @param manager 会话管理器实例
+         * @param context 命令上下文
+         * @return 执行结果描述字符串
+         */
         static std::string ExecuteExpression(const std::vector<Sessions::SessionsCommandTemp::ExpressionTerm>& terms, Sessions::SessionManagerTemp::SessionManager* manager, Command_Core::ICommandContext& context)
         {
             //首先先查询并获取该用户在SessionManager中的SelectedSessionID映射。
@@ -740,6 +1063,13 @@ namespace Sessions::SessionsCommandTemp
 
     private:
 
+        /**
+         * @brief 命令字符串到命令类型的映射表
+         *
+         * 支持中文和英文别名。
+         * 
+         * @warning 目前的实现是简单的字符串匹配，后续可能需要更复杂的解析方法以支持更灵活的命令输入。
+         */
         static inline std::unordered_map<std::string_view, TermType> commands = 
         {
         
@@ -915,7 +1245,14 @@ namespace Sessions::SessionsCommandTemp
         
 
 
-        //获取历史记录
+        /**
+         * @brief 获取历史记录的辅助函数
+         *
+         * @param term 包含参数的命令项
+         * @param manager 会话管理器
+         * @param context 命令上下文
+         * @return 格式化后的历史记录字符串
+         */
         std::string GetHistory(Sessions::SessionsCommandTemp::ExpressionTerm &term, Sessions::SessionManagerTemp::SessionManager* manager, Command_Core::ICommandContext& context)
         {
             const auto& List = manager->GetDiceSystem(context)->GetDiceEventListConst();
@@ -979,6 +1316,13 @@ namespace Sessions::SessionsCommandTemp
 
 namespace Sessions
 {
+    /**
+     * @brief 向命令注册表注册会话管理命令
+     *
+     * 插件初始化时调用此函数，将 `SessionsCommand` 处理器注册到核心命令系统中。
+     *
+     * @param registry 命令注册表接口
+     */
     void RegisterSessionsCommand(Command_Core::ICommandRegistry& registry);
 }
 

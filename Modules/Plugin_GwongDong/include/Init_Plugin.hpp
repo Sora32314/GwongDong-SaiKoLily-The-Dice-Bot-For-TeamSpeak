@@ -53,6 +53,20 @@
 
 namespace Plugin
 {
+    /**
+     * @brief 插件元信息单例类
+     *
+     * 提供对插件基本信息的统一访问入口。内部采用 PIMPL 模式隐藏实现细节，
+     * 并通过单例模式保证全局唯一实例。信息包括插件名称、版本、作者和描述。
+     *
+     * 用法：
+     * @code
+     * const auto& info = Plugin::PluginInfo::get_Instance();
+     * auto [name, desc, author, version] = info.get(); // 结构化绑定
+     * @endcode
+     *
+     * @note 该类为只读元信息提供者，不应包含可变状态。
+     */
     class LIB_EXPORT PluginInfo
     {
     private:
@@ -69,10 +83,21 @@ namespace Plugin
             return instance;
         }
 
+        /**
+         * @brief 根据字段名获取对应的元信息字符串
+         * @param str 字段标识（如 PLUGIN_NAME 宏的值）
+         * @return 对应的元信息字符串，若未匹配则返回空字符串
+         */
         std::string get(std::string str);
 
         //重命名
         using PluginInfoResSet = std::tuple<std::string,std::string,std::string,std::string>;
+
+        /**
+         * @brief 获取插件元信息元组
+         * @return std::tuple<std::string, std::string, std::string, std::string>
+         *         依次为：名称、描述、作者、版本
+         */
         PluginInfoResSet get();
         
         //禁止拷贝和赋值
@@ -89,12 +114,19 @@ namespace Plugin
         
     };
 
-
-
 }
 
 
-//服务器UUID到连接句柄以及其反向映射。
+
+/**
+ * @brief 服务器 UUID 与连接句柄的双向映射管理器
+ *
+ * TeamSpeak 3 中每个虚拟服务器有唯一的 UUID，而 SDK 使用临时连接句柄（uint64）
+ * 标识当前连接。该类维护两者之间的双向映射，并提供线程安全的增删查操作，
+ * 用于在回调中快速通过句柄获取 UUID 或反之。
+ *
+ * @note 所有公共方法均受内部 std::mutex 保护，保证多线程环境下的数据一致性。
+ */
 class ServerUUID final
 {
 public:
@@ -109,6 +141,12 @@ public:
 
 public:
 
+    /**
+     * @brief 建立 UUID 与连接句柄的映射关系
+     * @param UUID 服务器唯一标识符
+     * @param Handler 连接句柄
+     * @return 始终返回 true（当前实现）
+     */
     bool Build(const std::string UUID, const uint64 Handler)
     {
         std::lock_guard<std::mutex> lock(UUID_map_mutex);
@@ -118,6 +156,11 @@ public:
         return true;
     }
 
+    /**
+     * @brief 删除 UUID 与连接句柄的映射关系
+     * @param UUID 待删除的 UUID
+     * @return 删除成功返回 true，否则返回 false
+     */
     bool DeleteByUUID(const std::string& UUID)
     {
         std::lock_guard<std::mutex> lock(UUID_map_mutex);
@@ -138,6 +181,11 @@ public:
         return true;
     }
 
+    /**
+     * @brief 根据 Handler 删除对应的连接句柄映射关系
+     * @param Handler 待删除的 Handler 字符串
+     * @return 删除成功则返回 true，否则返回 false
+     */
     bool DeleteByHandler(const uint64& Handler)
     {
         std::lock_guard<std::mutex> lock(UUID_map_mutex);
@@ -158,6 +206,11 @@ public:
         return true;
     }
 
+    /**
+     * @brief 根据连接句柄获取对应的服务器 UUID
+     * @param Handler 连接句柄
+     * @return 若存在映射则返回 UUID 字符串视图，否则返回空视图
+     */
     std::string_view GetUUID(uint64 Handler)
     {
         std::lock_guard<std::mutex> lock(UUID_map_mutex);
@@ -170,6 +223,11 @@ public:
         return "";
     }
 
+    /**
+     * @brief 根据 UUID 获取对应的连接句柄
+     * @param UUID 服务器 UUID
+     * @return 若存在映射则返回对应的连接句柄，否则返回 0
+     */
     uint64 GetConnectingHandler(std::string_view UUID)
     {
         std::lock_guard<std::mutex> lock(UUID_map_mutex);
@@ -187,13 +245,31 @@ private:
     std::unordered_map<uint64, std::string> HandlerToUUIDMap;
 };
 
-//填充用户信息包
+/**
+ * @brief 信息包装器函数类型
+ *
+ * 定义从 TS3 原始事件参数构造 Command_Core::InfoFetcher 对象的回调签名。
+ * 实现者负责调用 TS3 SDK 获取用户名、频道名、服务器名等附加信息。
+ *
+ * @param serverConnectionHandlerID 连接句柄
+ * @param fromID 消息发送者的客户端 ID
+ * @param channelID 发送者所在的频道 ID
+ * @param isPrivate 是否为私聊消息
+ * @return 填充完毕的 InfoFetcher 结构体
+ */
 using FillInfoPackageFunc = std::function<Command_Core::InfoFetcher(
     uint64 serverConnectionHandlerID,
     anyID fromID,
     uint64 ChannelID,
     bool isPrivate
 )>;
+
+/**
+ * @brief 全局信息包装器实例
+ *
+ * 在插件初始化时被赋值为一个 lambda 表达式，用于在 onTextMessageEvent 等回调中
+ * 快速构建 InfoFetcher。该实例被多处调用，是实现消息处理流程的关键适配器。
+ */
 extern FillInfoPackageFunc FillInfoPackage;
 
 
