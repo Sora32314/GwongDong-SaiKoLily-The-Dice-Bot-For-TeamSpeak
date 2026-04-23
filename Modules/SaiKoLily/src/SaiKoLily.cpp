@@ -135,7 +135,7 @@ namespace SaiKoLily
         {
             for(auto&& config : config_terms)
             {
-                s_logCallback(std::format("ROLLDICEEVENT正在投掷骰子：{}，面数：{}，最小面数：{}，偏移值：{}，符号：{}，个数: {}", config.first.dice_name, config.first.faces, config.first.faces_min, config.first.offset, config.first.sign ? "正" : "负", config.second), Plugin_Logs::logLevel::info, true);
+                s_logCallback(std::format("ROLL DICE EVENT正在投掷骰子：{}，面数：{}，最小面数：{}，偏移值：{}，符号：{}，个数: {}", config.first.dice_name, config.first.faces, config.first.faces_min, config.first.offset, config.first.sign ? "正" : "负", config.second), Plugin_Logs::logLevel::info, true);
                 break;
             }
 

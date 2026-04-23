@@ -369,6 +369,16 @@ namespace Sessions::SessionManagerTemp
         // ----- 用户选择状态 -----
 
         /**
+         * @brief 获取用户选择的会话ID
+         *
+         * 获取指定用户当前选择的会话ID，用于支持用户->Session的查询。
+         * 
+         * @param user 执行选择的用户
+         * @return 用户选择的会话ID，若无选择则返回 0
+         */
+        virtual ID GetSelectedSessionOfUser(const Command_Core::ICommandContext& user) = 0;
+
+        /**
          * @brief 获取用户 UUID 到当前选中会话 ID 的映射表（只读）
          *
          * 该映射记录了每个用户当前“激活”的会话，用于支持 `SessionFetchMethod::Selected` 查询。
@@ -478,6 +488,7 @@ namespace Sessions::SessionsCommandTemp
         {"index", Sessions::SessionFetchMethod::Index},
         {"ID", Sessions::SessionFetchMethod::Index},
         {"id", Sessions::SessionFetchMethod::Index},
+        {"i", Sessions::SessionFetchMethod::Index},
         {"Title", Sessions::SessionFetchMethod::Title},
         {"title", Sessions::SessionFetchMethod::Title},
         {"t", Sessions::SessionFetchMethod::Title},
@@ -635,25 +646,29 @@ namespace Sessions::SessionsCommandTemp
         static std::string ExecuteExpression(const std::vector<Sessions::SessionsCommandTemp::ExpressionTerm>& terms, Sessions::SessionManagerTemp::SessionManager* manager, Command_Core::ICommandContext& context)
         {
             //首先先查询并获取该用户在SessionManager中的SelectedSessionID映射。
-            ID UserSelectedSession = 0;
-            SessionTemp::Session* WorkingSession;
-            if(manager->GetSelectionOfSession().contains(context.GetUserUUID(context.GetCallingUserID()).data()))
-            {
-                UserSelectedSession = manager->GetSelectionOfSession().at(context.GetUserUUID(context.GetCallingUserID()).data());
+            ID UserSelectedSession = manager->GetSelectedSessionOfUser(context);
+            SessionTemp::Session* WorkingSession = nullptr;
 
+            //替换使用新逻辑，更加简洁易懂。
+            if(UserSelectedSession != 0)
+            {
                 auto method = Sessions::SessionFetchMethod::Index;
 
                 WorkingSession = manager->GetSession(method, std::to_string(UserSelectedSession)).value_or(nullptr);
             }
 
-            //将所有Select移动至开头防止多次重复定义。
+            if(WorkingSession == nullptr)
+            {
+                return std::format("Sessions: 用户 {} 未选择任何Session！", context.GetCallingUserName());
+            }         
 
+            //将所有Select移动至开头防止多次重复定义。
             auto Copy_Of_Terms = terms;
             std::stable_partition(Copy_Of_Terms.begin(), Copy_Of_Terms.end(), [](const auto& term)
                                                                                  { 
                                                                                     return term.type == TermType::Select;
                                                                                  });
-            //最后一个Select会被最终执行。
+            //防止多次选择不同Session，最后一个Select会被最终执行。
 
             for(auto& term : Copy_Of_Terms)
             {
@@ -684,6 +699,34 @@ namespace Sessions::SessionsCommandTemp
                         }
                         break;
                     case TermType::End: 
+                        {
+                            if(term.args.size() == 0)
+                            {
+                                //默认删除用户选择的会话。
+                                if(UserSelectedSession == 0)
+                                {
+                                    return "SessionsEnd: 没有选择会话！";
+                                }
+
+                                manager->EndSession(UserSelectedSession);
+                                break;
+                            }
+                            
+                            if(term.args.size() != 2)
+                            {
+                                return "SessionsEnd: 参数错误！所需的参数数量必须为 0 或 2。";
+                            }
+                            auto method = FetchMethodMap.at(term.args[0]);
+
+                            auto session_ = manager->GetSession(method, term.args[1]);
+
+                            if(session_.value_or(nullptr) == nullptr)
+                            {
+                                return "SessionsEnd: 获取会话失败！";
+                            }
+
+                            manager->EndSession(session_.value()->GetID());
+                        }
                         break;
                     case TermType::Status:
                         break;
@@ -699,7 +742,6 @@ namespace Sessions::SessionsCommandTemp
                                 info = manager->GetSession(method, context.GetCallingUserName()).value_or(nullptr);
                                 if(info == nullptr)
                                 {
-                                    context.SendResult("Sessions: 没有会话！", Command_Core::MessageTarget::CurrentChannel);
                                     return "Sessions: 没有会话！";
                                 }
                             }
@@ -742,7 +784,7 @@ namespace Sessions::SessionsCommandTemp
                                     createTimeStr.pop_back();
                                 }
 
-                                context.SendResult(std::format("Sessions: 获取会话信息成功！\n会话ID: {}\n会话标题: {}\n会话描述: {}\n会话类型: {}\n会话创建时间: {}\n会话创建者: {}\n会话创建者ID: {}", info->GetID(), info->GetTitle(), info->GetDescription(), session_type, createTimeStr, info->GetCreateName(), info->GetCreateID()), Command_Core::MessageTarget::CurrentChannel);
+                                context.SendResult(std::format("Sessions: 获取会话信息成功！\n会话ID: {}\n会话标题: {}\n会话描述: {}\n会话类型: {}\n会话创建时间: {}\n会话创建者: {}\n会话创建者ID: {}", info->GetID(), info->GetTitle(), info->GetDescription(), session_type, createTimeStr, info->GetCreateName(), info->GetCreateID()), context.GetMessageTarget());
 
                                 std::string user_info_string = [&]()
                                     {
@@ -754,12 +796,11 @@ namespace Sessions::SessionsCommandTemp
                                         return result;
                                     }();
 
-                                context.SendResult(std::format("会话中人数：{}, 会话用户：\n{}\n", info->GetUserCount(), user_info_string), Command_Core::MessageTarget::CurrentChannel
-                                );
+                                context.SendResult(std::format("会话中人数：{}, 会话用户：\n{}\n", info->GetUserCount(), user_info_string), context.GetMessageTarget());
                             }
                             else
                             {
-                                context.SendResult(std::format("Sessions: 获取会话信息失败！"), Command_Core::MessageTarget::CurrentChannel);
+                                return "Sessions: 获取会话信息失败！";
                             }
                         }
                         break;
@@ -773,11 +814,11 @@ namespace Sessions::SessionsCommandTemp
 
                             for (auto &&iter : list)
                             {
-                                result += std::format("SessionsID: {} \t SessionsName: {}\n", iter, manager->GetSession(method_id, std::to_string(iter)).value()->GetTitle());
+                                result += std::format("SessionsID: {} \t SessionsName: {}\n", iter, manager->GetSession(method_id, std::to_string(iter)).has_value() ? manager->GetSession(method_id, std::to_string(iter)).value()->GetTitle() : "SessionList : 未知错误。");
                             }
                             
                             context.Log(std::format("Sessions: 获取会话列表成功！\n列表：{}", result), Plugin_Logs::logLevel::info, false);
-                            context.SendResult(std::format("Sessions: 获取会话列表成功！\n目前的活动列表：\n{}", result), Command_Core::MessageTarget::CurrentChannel);
+                            context.SendResult(std::format("Sessions: 获取会话列表成功！\n目前的活动列表：\n{}", result), context.GetMessageTarget());
                         }
                         break;
                     case TermType::Search: 
@@ -791,9 +832,8 @@ namespace Sessions::SessionsCommandTemp
                             //通过参数获取查找方式
                             auto method = FetchMethodMap.at(term.args[0]);
 
-                            if(term.args.size() < 2 || term.args.size() > 2)
+                            if(term.args.size() != 2)
                             {
-                                context.SendResult("SessionsSelect: 参数不足！", Command_Core::MessageTarget::CurrentChannel);
                                 return "SessionsSelect: 参数不足！";
                             }
 
@@ -802,7 +842,6 @@ namespace Sessions::SessionsCommandTemp
 
                             if(!session_.has_value())
                             {
-                                context.SendResult("SessionsSelect: 获取会话失败！", Command_Core::MessageTarget::CurrentChannel);
                                 return "SessionsSelect: 获取会话失败！";
                             }
                             
@@ -818,7 +857,6 @@ namespace Sessions::SessionsCommandTemp
                         {
                             if(term.args.size() > 2)
                             {
-                                context.SendResult("SessionsSelect: 参数过多！", Command_Core::MessageTarget::CurrentChannel);
                                 return "SessionsSelect: 参数过多！";
                             }
 
@@ -827,8 +865,12 @@ namespace Sessions::SessionsCommandTemp
                             if(term.args.size() < 1)
                             {
                                 //获取当前用户默认选择的ID
-                                auto selectedSessionID = manager->GetSelectionOfSession().at(context.GetUserUUID(context.GetCallingUserID()).data());
-                                context.SendResult(std::format("SessionsSelect: 获取当前用户默认选择的会话成功！会话ID：{}", selectedSessionID), Command_Core::MessageTarget::CurrentChannel);
+                                auto selectedSessionID = manager->GetSelectedSessionOfUser(context);
+                                #ifdef _DEBUG
+                                    context.Log(std::format("SessionsSelect: 获取当前用户默认选择的会话成功！会话ID：{}", selectedSessionID), Plugin_Logs::logLevel::info, false);
+                                    context.SendResult(std::format("SessionsSelect: 获取当前用户默认选择的会话成功！会话ID：{}", selectedSessionID), context.GetMessageTarget());
+                                #endif
+                                
                                 auto tmp = context.GetUserByName(context.GetCallingUserName());
                                 Command_Core::User user(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
                                 
@@ -844,7 +886,6 @@ namespace Sessions::SessionsCommandTemp
 
                             if(!session_.has_value())
                             {
-                                context.SendResult("SessionsSelect: 获取会话失败！", Command_Core::MessageTarget::CurrentChannel);
                                 return "SessionsSelect: 获取会话失败！";
                             }
 
@@ -859,6 +900,7 @@ namespace Sessions::SessionsCommandTemp
                         {
                             std::vector<Command_Core::User> users;
                             Sessions::SessionTemp::Session * workingSession;
+                            std::string result = "";
 
                             if(UserSelectedSession == 0)
                             {
@@ -866,7 +908,6 @@ namespace Sessions::SessionsCommandTemp
                                 workingSession = manager->GetSession(method, context.GetCallingUserName()).value_or(nullptr);
                                 if(workingSession == nullptr)
                                 {
-                                    context.SendResult("Sessions: 当前用户不是会话创建者或Session不存在！", Command_Core::MessageTarget::CurrentChannel);
                                     return "Sessions: 当前用户不是会话创建者或Session不存在！";
                                 }
                             }
@@ -878,34 +919,43 @@ namespace Sessions::SessionsCommandTemp
                             //每一个arg是一个字符串类型的用户名
                             for(auto& user : term.args)
                             {
-                                context.SendResult(std::format("查找用户：{}", user), Command_Core::MessageTarget::CurrentChannel);
+                                #ifdef _DEBUG
+                                    context.Log(std::format("查找用户：{}", user), Plugin_Logs::logLevel::info, false);
+                                    context.SendResult(std::format("查找用户：{}", user), context.GetMessageTarget());
+                                #endif
                                 auto tmp = context.GetUserByName(user);
                                 if(tmp.uniqueID == "")
                                 {
-                                    context.SendResult(std::format("Sessions: 未查询到用户：{}！", user), Command_Core::MessageTarget::CurrentChannel);
+                                    result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
                                 Command_Core::User user(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
 
                                 //创建逻辑用户对象
                                 users.push_back(user);
-                                context.SendResult(std::format("Sessions: 添加用户 {} 成功！", user.name), Command_Core::MessageTarget::CurrentChannel);
+                                #ifdef _DEBUG
+                                    context.Log(std::format("Sessions: 添加用户 {} 成功！", user.name), Plugin_Logs::logLevel::info, false);
+                                    context.SendResult(std::format("Sessions: 添加用户 {} 成功！", user.name), context.GetMessageTarget());
+                                #endif
                             }
 
                             manager->AddUser(workingSession->GetID(), users, context);
+
+                            return result;
                         }
                         break;
                     case TermType::UserQuit:
                         {
                             std::vector<Command_Core::User> users;
                             Sessions::SessionTemp::Session * workingSession;
+                            std::string result = "";
+
                             if(UserSelectedSession == 0)
                             {
                                 auto method = Sessions::SessionFetchMethod::Creator;
                                 workingSession = manager->GetSession(method, context.GetCallingUserName()).value_or(nullptr);
                                 if(workingSession == nullptr)
                                 {
-                                    context.SendResult("Sessions: 当前用户不是会话创建者或Session不存在！", Command_Core::MessageTarget::CurrentChannel);
                                     return "Sessions: 当前用户不是会话创建者或Session不存在！";
                                 }
                             }
@@ -917,21 +967,25 @@ namespace Sessions::SessionsCommandTemp
                             //每一个arg是一个字符串类型的用户名
                             for(auto& user : term.args)
                             {
-                                context.SendResult(std::format("查找用户：{}", user), Command_Core::MessageTarget::CurrentChannel);
+                                #ifdef _DEBUG
+                                    context.Log(std::format("查找用户：{}", user), Plugin_Logs::logLevel::info, false);
+                                    context.SendResult(std::format("查找用户：{}", user), context.GetMessageTarget());
+                                #endif
                                 auto tmp = context.GetUserByName(user);
                                 if(tmp.uniqueID == "")
                                 {
-                                    context.SendResult(std::format("Sessions: 未查询到用户：{}！", user), Command_Core::MessageTarget::CurrentChannel);
+                                    result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
                                 Command_Core::User user(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
 
                                 //创建逻辑用户对象
                                 users.push_back(user);
-                                context.SendResult(std::format("Sessions: 添加待删除的用户 {} 成功！", user.name), Command_Core::MessageTarget::CurrentChannel);
+                                context.SendResult(std::format("Sessions: 添加待删除的用户 {} 成功！", user.name), context.GetMessageTarget());
                             }
 
                             manager->RemoveUser(workingSession->GetID(), users, context);
+                            return result;
                         }
                         break;
                     case TermType::AdminsSet: 
@@ -947,7 +1001,7 @@ namespace Sessions::SessionsCommandTemp
                             std::string result;
                             std::string time;
 
-                            context.SendResult(std::format("历史记录总数: {}", List.size()), Command_Core::MessageTarget::CurrentChannel);
+                            context.SendResult(std::format("历史记录总数: {}", List.size()), context.GetMessageTarget());
                             if(term.args.size() < 1)
                             {
                                 //默认列出20条
@@ -988,7 +1042,7 @@ namespace Sessions::SessionsCommandTemp
                                 return "SessionsHistory: 参数过多或过少！";
                             }
 
-                            context.SendResult(std::format("历史记录获取成功:\n{}", result), Command_Core::MessageTarget::CurrentChannel);
+                            context.SendResult(std::format("Session: {} 的历史记录获取成功:\n{}", WorkingSession->GetTitle(), result), context.GetMessageTarget());
                         }
                         break;
                     case TermType::SaveToFile: 
@@ -1001,13 +1055,13 @@ namespace Sessions::SessionsCommandTemp
                                 {
                                 case 0: 
                                     {
-                                        path = FileManagerHandler.NMakeFile(path, "", "");
+                                        path = FileManagerHandler.NMakeFile(path, WorkingSession->GetTitle(), "");
                                         break;
                                     }
                                 case 1:
                                     {
                                         path = term.args[0];
-                                        path = FileManagerHandler.NMakeFile(path, "", "");
+                                        path = FileManagerHandler.NMakeFile(path, WorkingSession->GetTitle(), "");
                                         break;
                                     }
                                 case 2:
@@ -1046,19 +1100,18 @@ namespace Sessions::SessionsCommandTemp
                             }
                             catch(const std::exception& e)
                             {
-                                context.Log(std::format("{}", e.what()), Plugin_Logs::logLevel::err, true);
-                                return "SessionsSaveToFile: 文件创建失败！";
+                                return std::format("SessionsSaveToFile: 错误: {}", e.what());
                             }
-                            
                         }
                         break;
+
                     default: 
                         break;
                 }
             }
 
-            //返回执行的结果
-            return "执行成功！";
+            ///返回执行的错误到 @see void SessionsCommand::Execute(Command_Core::ICommandContext& context) ，此处如果为空，则表示命令执行成功，且不返回任何结果。
+            return "";
         }
 
     private:
