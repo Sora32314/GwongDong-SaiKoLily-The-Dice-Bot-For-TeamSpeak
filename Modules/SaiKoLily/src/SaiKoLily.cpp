@@ -350,6 +350,11 @@ namespace SaiKoLily
             return std::vector<std::vector<int64_t>>();
         }
 
+        size_t DiceEventImpl::GetSize() const
+        {
+            return sizeof(*this);
+        }
+
         //============RollDice类实现============
 
         int64_t DiceSystemImpl::RollDice(int64_t &face, std::string_view player) 

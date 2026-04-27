@@ -283,6 +283,10 @@ namespace SaiKoLily
             //获取详情
             std::vector<std::vector<int64_t>> GetTermDetails() const override;
 
+
+            //获取类大小
+            size_t GetSize() const override;
+
         private:
 
             //骰子项存储

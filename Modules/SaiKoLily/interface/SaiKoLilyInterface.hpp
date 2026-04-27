@@ -185,6 +185,8 @@ namespace SaiKoLily
              * @return 二维点数向量的常量引用
              */
             virtual std::vector<std::vector<int64_t>> GetTermDetails() const = 0;
+
+            virtual size_t GetSize() const = 0;
         };
 
         /**

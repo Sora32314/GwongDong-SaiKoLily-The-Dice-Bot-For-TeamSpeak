@@ -451,6 +451,15 @@ namespace Sessions::SessionManagerTemp
          * @return 若找到则返回会话指针包装在 `std::optional` 中，否则返回 `std::nullopt`
          */
         virtual std::optional<SessionTemp::Session*> GetSession(Sessions::SessionFetchMethod& method, std::string_view arg) = 0;
+
+        /**
+         * @brief 根据获取方式和参数查找会话列表
+         * 
+         * @param method 获取方式（按标题(Title)、创建者(Creator)、ID）
+         * @param arg 查找参数
+         * @return std::optional<std::vector<std::reference_wrapper<SessionTemp::Session>>> 若找到则返回会话引用包装器向量，否则返回 std::nullopt
+         */
+        virtual std::optional<std::vector<std::reference_wrapper<SessionTemp::Session>>> GetSessionsList(Sessions::SessionFetchMethod& method, std::string_view arg) = 0;
     };
 
 
@@ -729,6 +738,15 @@ namespace Sessions::SessionsCommandTemp
                         }
                         break;
                     case TermType::Status:
+                        {
+                            context.Log(std::format("Sessions:获取当前状态"), Plugin_Logs::logLevel::info, true);
+
+                            std::string result;
+
+
+
+                            context.SendResult(result, context.GetMessageTarget());
+                        }
                         break;
                     case TermType::Info:
                         {
@@ -822,6 +840,33 @@ namespace Sessions::SessionsCommandTemp
                         }
                         break;
                     case TermType::Search: 
+                        {
+                            std::string result;
+
+                            //必须获取两个参数，第一个参数是搜索方式，第二个参数是搜索内容。
+                            if(term.args.size() != 2)
+                            {
+                                return "SessionsSearch: 参数错误！所需的参数数量必须为 2。[arg1: 搜索方式, arg2: 搜索内容]。";
+                            }
+
+                            //直接调用API获取会话列表并返回结果。
+                            auto SessionsList_ = manager->GetSessionsList(FetchMethodMap.at(term.args[0]), term.args[1]);
+
+                            if(SessionsList_.has_value())
+                            {
+                                for (auto &&iter : SessionsList_.value())
+                                {
+                                    result += std::format("会话ID: {} \t 会话名称: {}\n 会话简介: {}\n 会话创建者: {}\n 创建时间: {}\n", iter.get().GetID(), iter.get().GetTitle(), iter.get().GetDescription(), iter.get().GetCreateName(), iter.get().GetCreateTime());
+                                }
+                                context.Log(std::format("Sessions: 搜索会话成功！\n列表：{}", result), Plugin_Logs::logLevel::info, false);
+                                context.SendResult(std::format("Sessions: 搜索会话成功！\n搜索结果：\n{}", result), context.GetMessageTarget());
+                            }
+                            else
+                            {
+                                return "SessionsSearch: 搜索会话失败！";
+                            }
+                            
+                        }
                         break;
                     case TermType::Activate: 
                         break;

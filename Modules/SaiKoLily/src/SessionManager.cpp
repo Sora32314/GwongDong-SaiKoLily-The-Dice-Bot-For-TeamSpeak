@@ -821,6 +821,8 @@ namespace Sessions::SessionManager
             return ret;
         }
 
+        
+
         // by All
         std::vector<std::reference_wrapper<SessionTemp::Session>> GetSessionsList() override
         {
@@ -845,7 +847,7 @@ namespace Sessions::SessionManager
             return ret;
         }
 
-        // // by Title, Creator, Index
+        //by Title, Creator, Index
         std::optional<SessionTemp::Session*> GetSession(Sessions::SessionFetchMethod& method, std::string_view arg) override
         {
             if(sessions.empty())
@@ -925,6 +927,111 @@ namespace Sessions::SessionManager
             return std::nullopt;
         }
 
+        //by Title, Creator, Index
+        std::optional<std::vector<std::reference_wrapper<SessionTemp::Session>>> GetSessionsList(Sessions::SessionFetchMethod& method, std::string_view arg) override
+        {
+            if(sessions.empty())
+            {
+                cmds_logCallback(std::format("目前会话集为空！"), Plugin_Logs::logLevel::warn, false);
+                return std::nullopt;
+            }
+
+            if(arg.empty())
+            {
+                cmds_logCallback(std::format("输入的参数为空！"), Plugin_Logs::logLevel::warn, false);
+                return std::nullopt;
+            }
+
+            std::vector<std::reference_wrapper<SessionTemp::Session>> ret;
+
+            switch (method)
+            {
+            case Sessions::SessionFetchMethod::Title:
+                // Implementation for fetching sessions by title
+                {
+                    auto iter = sessions.begin();
+                    
+                    while (iter != sessions.end())
+                    {
+                        if(iter->second->GetTitle() == arg)
+                        {
+                            ret.push_back(*iter->second);
+                        }
+                        iter++;
+                    }
+
+                    if(ret.empty())
+                    {
+                        cmds_logCallback(std::format("未通过标题：\"{}\"查询到会话！", arg), Plugin_Logs::logLevel::warn, true);
+                        return std::nullopt;
+                    }
+                    else
+                    {
+                        cmds_logCallback(std::format("已通过标题：\"{}\"查询到会话，数量：{}！", arg, ret.size()), Plugin_Logs::logLevel::info, false);
+                    }
+                }
+
+                break;
+            case Sessions::SessionFetchMethod::Creator:
+                // Implementation for fetching sessions by creator
+                {
+                    auto iter = sessions.begin();
+                    
+                    while (iter != sessions.end())
+                    {
+                        if(iter->second->GetCreateName() == arg)
+                        {
+                            ret.push_back(*iter->second);
+                        }
+                        iter++;
+                    }
+
+                    if(ret.empty())
+                    {
+                        cmds_logCallback(std::format("未通过用户名：\"{}\"查询到会话！", arg), Plugin_Logs::logLevel::warn, true);
+                        return std::nullopt;
+                    }
+                    else
+                    {
+                        cmds_logCallback(std::format("已通过用户名：\"{}\"查询到会话，数量：{}！", arg, ret.size()), Plugin_Logs::logLevel::info, false);
+                    }
+                }
+                break;
+            case Sessions::SessionFetchMethod::Index:
+                // Implementation for fetching sessions by index
+                {
+                    auto Temp_String_to_ID = std::stoll(arg.data());
+                    auto iter = sessions.begin();
+                    
+                    while (iter != sessions.end())
+                    {
+                        if(iter->first == Temp_String_to_ID)
+                        {
+                            ret.push_back(*iter->second);
+                        }
+                        iter++;
+                    }
+
+                    if(ret.empty())
+                    {
+                        cmds_logCallback(std::format("未通过Session ID：\"{}\"查询到会话！", arg), Plugin_Logs::logLevel::warn, true);
+                        return std::nullopt;
+                    }
+                    else
+                    {
+                        cmds_logCallback(std::format("已通过Session ID：\"{}\"查询到会话，数量：{}！", arg, ret.size()), Plugin_Logs::logLevel::info, false);
+                    }
+                }
+                break;
+            
+            default:
+                cmds_logCallback(std::format("不支持的会话获取方式！"), Plugin_Logs::logLevel::warn, false);
+                return std::nullopt;
+                break;
+            }
+
+            return ret;
+        }
     private:
         SessionManagerImpl() {
             SaiKoLily::SetDiceContextProvider(this);
