@@ -3,10 +3,14 @@
 #include <random>
 #include <chrono>
 #include <iomanip>
+#include <variant>
 #include <fstream>
 #include <functional>
 #include <filesystem>
 #include <loggings.hpp>
+
+#define DEBUG_VERSION_V1 -1
+#define DEBUG_V1 static_cast<std::byte>(DEBUG_VERSION_V1)
 
 namespace fs = std::filesystem;
 using Path = std::filesystem::path;
@@ -121,6 +125,7 @@ namespace GwongDongFileSystem
             _informationLeave = "NULL";
             _extension = "nil";
             _fileType = FileType::RegularFile;
+            _metadata_version = std::byte{0};
         }
 
         virtual std::string UpdateMetaData()
@@ -262,6 +267,10 @@ namespace GwongDongFileSystem
             return _informationLeave;
         }
 
+        virtual std::byte GetMetaDataVersion() const
+        {
+            return _metadata_version;
+        }
     private: 
         std::string _name;
         FileTime _createTime;
@@ -270,6 +279,9 @@ namespace GwongDongFileSystem
         std::string _informationLeave;
         std::string _extension;
         FileType _fileType;
+
+        //neg:测试用版本 pos:正式版本
+        std::byte _metadata_version = DEBUG_V1;
     };
     
     class MetaDataSerializer
@@ -294,16 +306,66 @@ namespace GwongDongFileSystem
             }();
         };
 
-        static std::vector<uint8_t> SerializeMetaDataBinary(const FileMetaData& metaData)
+        //从FileMetaData序列化二进制元数据
+        static std::vector<std::byte> SerializeMetaDataBinary(const FileMetaData& metaData)
         {
+            using MetaField = std::variant<
+                                            std::string,       // name / owner / informationLeave / extension
+                                            FileTime,          // createTime / modifyTime
+                                            FileType,          // fileType
+                                            std::byte          // metadataVersion
+                                        >;
+            
+            //序列化为二进制格式
+            std::vector<std::byte> string_stream;
 
+            auto serializeField = [&string_stream](const MetaField& field) -> void
+            {
+                std::visit([&string_stream](auto&& arg) -> void
+                {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same_v<T, std::string>)
+                    {
+                        string_stream.insert(string_stream.end(), arg.begin(), arg.end());
+                    }
+                    else if constexpr (std::is_same_v<T, FileTime>)
+                    {
+                        auto time = std::chrono::duration_cast<std::chrono::milliseconds>(arg.time_since_epoch()).count();
+                        auto time_bytes = reinterpret_cast<const std::byte*>(&time);
+                        string_stream.insert(string_stream.end(), time_bytes, time_bytes + sizeof(time));
+                    }
+                    else if constexpr (std::is_same_v<T, FileType>)
+                    {
+                        auto type = static_cast<std::underlying_type_t<FileType>>(arg);
+                        auto type_bytes = reinterpret_cast<const std::byte*>(&type);
+                        string_stream.insert(string_stream.end(), type_bytes, type_bytes + sizeof(type));
+                    }
+                    else if constexpr (std::is_same_v<T, std::byte>)
+                    {
+                        string_stream.push_back(arg);
+                    }
+                }, field);
+            };
+
+            serializeField(metaData.GetName());
+            serializeField(metaData.GetCreateTime());
+            serializeField(metaData.GetModifyTime());
+            serializeField(metaData.GetOwner());
+            serializeField(metaData.GetInformationLeave());
+            serializeField(metaData.GetExtension());
+            serializeField(metaData.GetFileType());
+            serializeField(metaData.GetMetaDataVersion());
+               
+            return string_stream;
         };
 
-        static FileMetaData DeserializeMetaDataBinary(const std::vector<uint8_t>& data)
+        //反序列化二进制元数据到FileMetaData
+        static FileMetaData DeserializeMetaDataBinary(const std::vector<std::byte>& data)
         {
 
         }
 
+        //从文本反序列化
         static FileMetaData DeserializeMetaDataText(const std::string& content)
         {
             return [&](std::string_view content) 

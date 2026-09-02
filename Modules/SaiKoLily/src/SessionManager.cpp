@@ -50,6 +50,7 @@ namespace Sessions::Session
         creatorName(_creatorName),
         channelName(_channelName),
         serverName(_serverName),
+        title(_title),
         type(_type),
         description(_description),
         dice_system(std::move(_diceSystem))
@@ -442,7 +443,7 @@ namespace Sessions::SessionManager
         }
         void SaveSession(ID sessionID) override 
         {
-
+            
         }
         bool LoadSession(ID sessionID) override 
         {
@@ -584,7 +585,11 @@ namespace Sessions::SessionManager
         }
         std::vector<Command_Core::Admin> GetAdmins(ID sessionID, const Command_Core::ICommandContext& context) override 
         {
-            return sessions.at(sessionID)->GetAdmins();
+            if(sessions.contains(sessionID))
+            {
+                return sessions.at(sessionID)->GetAdmins();
+            }
+            return {};
         }
         std::vector<ID> GetSessionLists () override 
         {
@@ -839,6 +844,7 @@ namespace Sessions::SessionManager
                 if(iter == sessions.end())
                 {
                     cmds_logCallback(std::format("查询完毕！"), Plugin_Logs::logLevel::info, false);
+                    break;
                 }
                 ret.push_back(*iter->second);
                 iter++;
