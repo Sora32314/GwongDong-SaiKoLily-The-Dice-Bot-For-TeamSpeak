@@ -330,7 +330,7 @@ namespace GwongDongFileSystem
                     }
                     else if constexpr (std::is_same_v<T, FileTime>)
                     {
-                        auto time = std::chrono::duration_cast<std::chrono::milliseconds>(arg.time_since_epoch()).count();
+                        auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(arg.time_since_epoch()).count();
                         auto time_bytes = reinterpret_cast<const std::byte*>(&time);
                         string_stream.insert(string_stream.end(), time_bytes, time_bytes + sizeof(time));
                     }
