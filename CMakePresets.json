@@ -13,10 +13,9 @@
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/Build/Debug",
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "cl.exe",
-                "CMAKE_CXX_COMPILER": "cl.exe",
+                "CMAKE_C_COMPILER": "gcc.exe",
+                "CMAKE_CXX_COMPILER": "g++.exe",
                 "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_SOURCE_DIR": ".",
                 "CMAKE_C_STANDARD": "23",
                 "CMAKE_CXX_STANDARD": "23",
                 "CMAKE_CXX_EXTENSIONS": "OFF",
@@ -28,10 +27,6 @@
 
 
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-            },
-            "environment": {
-                "CC": "cl.exe",
-                "CXX": "cl.exe"
             }
         },
         {
@@ -41,10 +36,9 @@
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/Build/Release",
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "cl.exe",
-                "CMAKE_CXX_COMPILER": "cl.exe",
+                "CMAKE_C_COMPILER": "gcc.exe",
+                "CMAKE_CXX_COMPILER": "g++.exe",
                 "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_SOURCE_DIR": ".",
                 "CMAKE_C_STANDARD": "23",
                 "CMAKE_CXX_STANDARD": "23",
                 "CMAKE_CXX_EXTENSIONS": "OFF",
@@ -57,10 +51,6 @@
 
 
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-            },
-            "environment": {
-                "CC": "cl.exe",
-                "CXX": "cl.exe"
             }
         }
     ],
@@ -70,6 +60,18 @@
             "configurePreset": "core debug",
             "configuration": "Debug",
             "targets":["Plugin_GwongDong", "encapsulation_spdlog", "saiko_lily", "command_core"]
+        },
+        {
+            "name": "Release Build",
+            "configurePreset": "core release",
+            "configuration": "Release",
+            "targets":["Plugin_GwongDong", "encapsulation_spdlog", "saiko_lily", "command_core"]
+        },
+        {
+            "name": "Test Build",
+            "configurePreset": "core debug",
+            "configuration": "Debug",
+            "targets":["Plugin_GwongDong", "encapsulation_spdlog", "saiko_lily", "command_core", "GwongDongFS_Bench"]
         }
     ]
 }

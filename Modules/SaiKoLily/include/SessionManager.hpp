@@ -974,13 +974,13 @@ namespace Sessions::SessionsCommandTemp
                                     result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
-                                Command_Core::User user(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
+                                Command_Core::User newUser(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
 
                                 //创建逻辑用户对象
-                                users.push_back(user);
+                                users.push_back(newUser);
                                 #ifdef _DEBUG
-                                    context.Log(std::format("Sessions: 添加用户 {} 成功！", user.name), Plugin_Logs::logLevel::info, false);
-                                    context.SendResult(std::format("Sessions: 添加用户 {} 成功！", user.name), context.GetMessageTarget());
+                                    context.Log(std::format("Sessions: 添加用户 {} 成功！", newUser.name), Plugin_Logs::logLevel::info, false);
+                                    context.SendResult(std::format("Sessions: 添加用户 {} 成功！", newUser.name), context.GetMessageTarget());
                                 #endif
                             }
 
@@ -1022,11 +1022,11 @@ namespace Sessions::SessionsCommandTemp
                                     result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
-                                Command_Core::User user(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
+                                Command_Core::User newUser(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
 
                                 //创建逻辑用户对象
-                                users.push_back(user);
-                                context.SendResult(std::format("Sessions: 添加待删除的用户 {} 成功！", user.name), context.GetMessageTarget());
+                                users.push_back(newUser);
+                                context.SendResult(std::format("Sessions: 添加待删除的用户 {} 成功！", newUser.name), context.GetMessageTarget());
                             }
 
                             manager->RemoveUser(workingSession->GetID(), users, context);

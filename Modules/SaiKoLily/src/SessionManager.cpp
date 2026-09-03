@@ -1067,7 +1067,7 @@ namespace Sessions::SessionsCommand
         SessionsCommandImpl(const SessionsCommandImpl&) = delete;
         SessionsCommandImpl& operator=(const SessionsCommandImpl&) = delete;
 
-        void SessionsCommand::Execute(Command_Core::ICommandContext& context) override
+        void Execute(Command_Core::ICommandContext& context) override
         {
 
             if(context.GetParamCount() <= 0)
