@@ -1,13 +1,26 @@
 #pragma once
 
+#include <span>
+#include <array>
+#include <bit>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <random>
 #include <chrono>
+#include <format>
 #include <iomanip>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 #include <variant>
+#include <vector>
 #include <fstream>
-#include <functional>
 #include <optional>
+#include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <loggings.hpp>
 
 #define DEBUG_VERSION_V1 -1
@@ -26,6 +39,11 @@ namespace GwongDongFileSystem
 
     extern LogCallBack FSLogCallback;
     void SetLogCallback(LogCallBack callback);    
+
+    inline constexpr std::array<std::byte, 3> METADATA_START_SIGN{std::byte{0xF8}, std::byte{0xFF}, std::byte{0xFD}};
+    inline constexpr std::array<std::byte, 3> METADATA_END_SIGN{std::byte{0xFD}, std::byte{0xFF}, std::byte{0xF8}};
+
+
 
     //为文件类型预留接口，目前未使用。
     enum class FileType
@@ -210,6 +228,11 @@ namespace GwongDongFileSystem
             _modifyTime = std::chrono::system_clock::now();
         }
 
+        virtual void SetModifyTime(const FileTime& time)
+        {
+            _modifyTime = time;
+        }
+
         virtual void SetName(std::string_view name)
         {
             _name = std::move(name);
@@ -218,6 +241,11 @@ namespace GwongDongFileSystem
         virtual void SetInformationLeave(std::string_view informationLeave)
         {
             _informationLeave = std::move(informationLeave);
+        }
+
+        virtual void SetMetaDataVersion(std::byte version)
+        {
+            _metadata_version = version;
         }
 
         virtual std::string GetName() const
@@ -364,6 +392,13 @@ namespace GwongDongFileSystem
             //序列化为二进制格式
             std::vector<std::byte> string_stream;
 
+            
+
+            //起始字段。
+            string_stream.insert(string_stream.end(), {std::byte{0xF8}, std::byte{0xFF}, std::byte{0xFD}});
+            
+
+
             auto serializeField = [&string_stream](const MetaField& field) -> void
             {
                 std::visit([&string_stream](auto&& arg) -> void
@@ -394,6 +429,16 @@ namespace GwongDongFileSystem
                 }, field);
             };
 
+            auto NameField = [&string_stream](const std::string& name)
+                -> void
+            {
+                string_stream.insert(string_stream.end(),
+                                     reinterpret_cast<const std::byte*>(name.data()),
+                                     reinterpret_cast<const std::byte*>(name.data()) + name.size());
+                string_stream.push_back(static_cast<std::byte>('\0'));
+            };
+
+
             serializeField(metaData.GetName());
             serializeField(metaData.GetCreateTime());
             serializeField(metaData.GetModifyTime());
@@ -403,15 +448,202 @@ namespace GwongDongFileSystem
             serializeField(metaData.GetFileType());
             serializeField(metaData.GetMetaDataVersion());
             
+            string_stream.insert(string_stream.end(), {std::byte{0xFD}, std::byte{0xFF}, std::byte{0xF8}});
+            
+            //最终确定长度
+            std::byte sizeMetaData[2] = {
+                static_cast<std::byte>((string_stream.size() + 2 >> 8) & 0xFF),
+                static_cast<std::byte>(string_stream.size() + 2 & 0xFF)
+            }; 
+
+            string_stream.insert(string_stream.begin() + 3, sizeMetaData, sizeMetaData + sizeof(sizeMetaData));
+            
             return string_stream;
         };
 
         //反序列化二进制元数据到FileMetaData
         static FileMetaData DeserializeMetaDataBinary(const std::vector<std::byte>& data)
         {
-            //TODO: 待实现二进制反序列化；此处仅保证可编译，返回默认元数据占位。
-            (void)data;
-            return FileMetaData{};
+            //二进制格式（TLV）：
+            //  Frame = StartSign(3B: F8 FF FD) | FrameLength(2B, 大端, 含全部开销)
+            //        | TLV... | EndSign(3B: FD FF F8)
+            //  TLV   = TLVHeader(2B, 大端) | Content(Length B)
+            //  TLVHeader 高4位 = tag，低12位 = Length（最大 4095）
+            //tag分配：0x0 保留/填充,0x1 Name,0x2 CreateTime,0x3 ModifyTime,0x4 Owner,
+            //        0x5 InformationLeave,0x6 Extension,0x7 FileType,0x8 MetaDataVersion,
+            //        0x9~0xE 扩展,0xF 转义/扩展保留
+            //编码：字符串 = 原始UTF-8字节（不带'\0'）；时间 = int64纳秒（8B大端）；
+            //      FileType / MetaDataVersion = 1B。
+            //未知tag按Length静默跳过，保证向前兼容。
+            return [&]()
+                -> FileMetaData
+            {
+                FileMetaData metaData;
+
+                std::span<const std::byte> payLoad(data);
+            
+
+                constexpr std::size_t startSigSize    = 3;
+                constexpr std::size_t lengthFieldSize = 2;
+                constexpr std::size_t endSigSize      = 3;
+                constexpr std::size_t headerSize      = startSigSize + lengthFieldSize;
+                constexpr std::size_t overhead        = headerSize + endSigSize;
+
+                if(payLoad.size() < overhead)
+                {
+                    FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：文件不存在MetaData，文件可能已损坏或你误打开了非该文件系统所管理的文件。", Plugin_Logs::logLevel::warn, true);
+                    return metaData;
+                }
+
+                if(!std::ranges::equal(payLoad.first(startSigSize), METADATA_START_SIGN))
+                {
+                    FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：MetaData起始签名不匹配，文件可能已损坏或你误打开了非该文件系统所管理的文件。", Plugin_Logs::logLevel::warn, true);
+                    return metaData;
+                }
+
+                //长度字段为整帧总长（含前后签名与长度字段本身），大端。
+                const std::uint16_t frameLength = static_cast<std::uint16_t>(std::to_integer<std::uint16_t>(payLoad[3]) << 8 |
+                                               std::to_integer<std::uint16_t>(payLoad[4]));
+
+                if(frameLength < overhead || frameLength > payLoad.size())
+                {
+                    FSLogCallback(std::format("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：MetaData长度字段为{}字节，但数据实际有{}字节，请检查文件。", frameLength, payLoad.size()), Plugin_Logs::logLevel::warn, true);
+                    return metaData;
+                }
+
+                //只解析长度字段覆盖的范围，忽略帧后可能存在的文件正文。
+                const std::span<const std::byte> frame = payLoad.first(frameLength);
+
+                if(!std::ranges::equal(frame.last(endSigSize), METADATA_END_SIGN))
+                {
+                    FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：MetaData结束签名不匹配，文件可能已损坏或你误打开了非该文件系统所管理的文件。", Plugin_Logs::logLevel::warn, true);
+                    return metaData;
+                }
+
+                payLoad = frame.subspan(headerSize, frameLength - overhead);
+
+                //空字段（长度为0）时 span::data() 不保证非空，统一交给这个辅助函数兜底。
+                auto MemoryCast_Span_to_String_View = [](std::span<const std::byte> byteStream) -> std::string_view
+                {
+                    if(byteStream.empty())
+                    {
+                        return {};
+                    }
+                    return std::string_view(reinterpret_cast<const char*>(byteStream.data()), byteStream.size());
+                };
+
+                //状态解析状态机
+                for(std::size_t usedByte = 0; usedByte < payLoad.size() && !payLoad.empty();)
+                {
+                    if(usedByte + 2 > payLoad.size())
+                    {
+                        FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：MetaData字段头不完整，请检查文件。", Plugin_Logs::logLevel::warn, true);
+                        return metaData;
+                    }
+
+                    //TLV头 2B 大端：高4位 tag，低12位 Content 长度。
+                    const std::uint16_t tlvHeader =
+                        static_cast<std::uint16_t>(std::to_integer<std::uint16_t>(payLoad[usedByte]) << 8 |
+                                                   std::to_integer<std::uint16_t>(payLoad[usedByte + 1]));
+
+                    const std::uint8_t  tag        = static_cast<std::uint8_t>(tlvHeader >> 12);
+                    const std::uint16_t tag_length = static_cast<std::uint16_t>(tlvHeader & 0x0FFFu);
+
+                    usedByte += 2;     //跳过 tag(4bit) + length(12bit)
+
+                    if(usedByte + tag_length > payLoad.size())
+                    {
+                        FSLogCallback(std::format("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：MetaData字段(tag=0x{:X})声明长度为{}字节，但剩余数据不足，请检查文件。", tag, tag_length), Plugin_Logs::logLevel::warn, true);
+                        return metaData;
+                    }
+
+
+                    switch(tag)
+                    {
+                    case 0x0:
+                        //保留/填充：按自描述长度跳过
+                        break;
+                    case 0x1:
+                        //Name
+                        metaData.SetName(MemoryCast_Span_to_String_View(payLoad.subspan(usedByte, tag_length)));
+                        break;
+                    case 0x2:
+                    case 0x3:
+                    {
+                        //CreateTime / ModifyTime：8B 大端 int64 纳秒
+                        if(tag_length != sizeof(std::uint64_t))
+                        {
+                            FSLogCallback(std::format("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：时间字段(tag=0x{:X})长度应为8字节，实际为{}字节，请检查文件。", tag, tag_length), Plugin_Logs::logLevel::warn, true);
+                            return metaData;
+                        }
+
+                        std::uint64_t rawTime = 0;
+                        std::memcpy(&rawTime, payLoad.subspan(usedByte, tag_length).data(), sizeof(rawTime));
+                        rawTime = std::byteswap(rawTime);
+                        const std::int64_t nanoseconds = std::bit_cast<std::int64_t>(rawTime);
+                        const FileTime time(std::chrono::duration_cast<FileTime::duration>(std::chrono::nanoseconds{nanoseconds}));
+
+                        if(tag == 0x2)
+                        {
+                            metaData.SetCreateTime(time);
+                        }
+                        else
+                        {
+                            metaData.SetModifyTime(time);
+                        }
+                        break;
+                    }
+                    case 0x4:
+                        //Owner
+                        metaData.SetOwner(MemoryCast_Span_to_String_View(payLoad.subspan(usedByte, tag_length)));
+                        break;
+                    case 0x5:
+                        //InformationLeave
+                        metaData.SetInformationLeave(MemoryCast_Span_to_String_View(payLoad.subspan(usedByte, tag_length)));
+                        break;
+                    case 0x6:
+                        //Extension
+                        //显式构造 string，避免命中 fs::path 重载
+                        metaData.SetExtension(std::string(MemoryCast_Span_to_String_View(payLoad.subspan(usedByte, tag_length))));
+                        break;
+                    case 0x7:
+                    {
+                        //FileType：1B
+                        if(tag_length != 1)
+                        {
+                            FSLogCallback(std::format("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：FileType字段长度应为1字节，实际为{}字节，请检查文件。", tag_length), Plugin_Logs::logLevel::warn, true);
+                            return metaData;
+                        }
+
+                        const std::uint8_t rawType = std::to_integer<std::uint8_t>(payLoad[usedByte]);
+                        metaData.SetFileType(rawType <= static_cast<std::uint8_t>(FileType::Other)
+                                                 ? static_cast<FileType>(rawType)
+                                                 : FileType::Unknown);
+                        break;
+                    }
+                    case 0x8:
+                    {
+                        //MetaDataVersion：1B
+                        if(tag_length != 1)
+                        {
+                            FSLogCallback(std::format("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：MetaDataVersion字段长度应为1字节，实际为{}字节，请检查文件。", tag_length), Plugin_Logs::logLevel::warn, true);
+                            return metaData;
+                        }
+
+                        metaData.SetMetaDataVersion(payLoad[usedByte]);
+                        break;
+                    }
+                    default:
+                        //0x9~0xE 扩展、0xF 转义/扩展保留：按自描述长度静默跳过，保证向前兼容。
+                        break;
+                    }
+                    
+                    usedByte += tag_length;
+                }
+
+                
+                return metaData;
+            }();
         }
 
         //从文本反序列化
@@ -556,6 +788,11 @@ namespace GwongDongFileSystem
                 return metaData;
             }(content);
         }
+    
+
+    private:
+
+
     };
 
 
