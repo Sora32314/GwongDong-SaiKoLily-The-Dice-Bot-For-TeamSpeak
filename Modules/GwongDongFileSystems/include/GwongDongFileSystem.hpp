@@ -382,83 +382,134 @@ namespace GwongDongFileSystem
         //从FileMetaData序列化二进制元数据
         static std::vector<std::byte> SerializeMetaDataBinary(const FileMetaData& metaData)
         {
-            using MetaField = std::variant<
-                                            std::string,       // name / owner / informationLeave / extension
-                                            FileTime,          // createTime / modifyTime
-                                            FileType,          // fileType
-                                            std::byte          // metadataVersion
-                                        >;
-            
-            //序列化为二进制格式
-            std::vector<std::byte> string_stream;
-
-            
-
-            //起始字段。
-            string_stream.insert(string_stream.end(), {std::byte{0xF8}, std::byte{0xFF}, std::byte{0xFD}});
-            
-
-
-            auto serializeField = [&string_stream](const MetaField& field) -> void
+            //二进制格式（TLV）：
+            //  Frame = StartSign(3B: F8 FF FD) | FrameLength(2B, 大端, 含全部开销)
+            //        | TLV... | EndSign(3B: FD FF F8)
+            //  TLV   = TLVHeader(2B, 大端) | Content(Length B)
+            //  TLVHeader 高4位 = tag，低12位 = Length（最大 4095）
+            //tag分配：0x0 保留/填充,0x1 Name,0x2 CreateTime,0x3 ModifyTime,0x4 Owner,
+            //        0x5 InformationLeave,0x6 Extension,0x7 FileType,0x8 MetaDataVersion,
+            //        0x9~0xE 扩展,0xF 转义/扩展保留
+            //编码：字符串 = 原始UTF-8字节（不带'\0'）；时间 = int64纳秒（8B，本机字节序）；
+            //      FileType / MetaDataVersion = 1B
+            return [&]()
+                -> std::vector<std::byte>
             {
-                std::visit([&string_stream](auto&& arg) -> void
+                std::vector<std::byte> string_stream;
+
+                //起始字段。
+                string_stream.insert(string_stream.end(), METADATA_START_SIGN.begin(), METADATA_START_SIGN.end());
+
+                //长度字段先占位，待整帧完成后回填
+                string_stream.push_back(std::byte{0});
+                string_stream.push_back(std::byte{0});
+
+                //追加一个 TLV 字段；字段内容超过 12bit 长度上限（4095字节）时返回 false
+                auto appendTLV = [&string_stream](std::uint8_t tag, const std::byte* content, std::size_t length) -> bool
                 {
-                    using T = std::decay_t<decltype(arg)>;
-                    if constexpr (std::is_same_v<T, std::string>)
+                    if(length > 0x0FFF)
                     {
-                        string_stream.insert(string_stream.end(),
-                                             reinterpret_cast<const std::byte*>(arg.data()),
-                                             reinterpret_cast<const std::byte*>(arg.data()) + arg.size());
+                        FSLogCallback(std::format("[GwongDongFileSystem] SERIALIZE_METADATA_BINARY：字段(tag=0x{:X})长度为{}字节，超过TLV上限4095字节，请精简MetaData内容！", tag, length), Plugin_Logs::logLevel::err, true);
+                        return false;
                     }
-                    else if constexpr (std::is_same_v<T, FileTime>)
+
+                    const std::uint16_t tlvHeader = static_cast<std::uint16_t>((static_cast<std::uint16_t>(tag) << 12) |
+                                                                               static_cast<std::uint16_t>(length));
+
+                    string_stream.push_back(static_cast<std::byte>((tlvHeader >> 8) & 0xFF));
+                    string_stream.push_back(static_cast<std::byte>(tlvHeader & 0xFF));
+
+                    if(length > 0)
                     {
-                        auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(arg.time_since_epoch()).count();
-                        auto time_bytes = reinterpret_cast<const std::byte*>(&time);
-                        string_stream.insert(string_stream.end(), time_bytes, time_bytes + sizeof(time));
+                        string_stream.insert(string_stream.end(), content, content + length);
                     }
-                    else if constexpr (std::is_same_v<T, FileType>)
-                    {
-                        auto type = static_cast<std::underlying_type_t<FileType>>(arg);
-                        auto type_bytes = reinterpret_cast<const std::byte*>(&type);
-                        string_stream.insert(string_stream.end(), type_bytes, type_bytes + sizeof(type));
-                    }
-                    else if constexpr (std::is_same_v<T, std::byte>)
-                    {
-                        string_stream.push_back(arg);
-                    }
-                }, field);
-            };
 
-            auto NameField = [&string_stream](const std::string& name)
-                -> void
-            {
-                string_stream.insert(string_stream.end(),
-                                     reinterpret_cast<const std::byte*>(name.data()),
-                                     reinterpret_cast<const std::byte*>(name.data()) + name.size());
-                string_stream.push_back(static_cast<std::byte>('\0'));
-            };
+                    return true;
+                };
 
+                //原始UTF-8字节，不带'\0'。
+                auto appendString = [&appendTLV](std::uint8_t tag, const std::string& value) -> bool
+                {
+                    return appendTLV(tag, reinterpret_cast<const std::byte*>(value.data()), value.size());
+                };
 
-            serializeField(metaData.GetName());
-            serializeField(metaData.GetCreateTime());
-            serializeField(metaData.GetModifyTime());
-            serializeField(metaData.GetOwner());
-            serializeField(metaData.GetInformationLeave());
-            serializeField(metaData.GetExtension());
-            serializeField(metaData.GetFileType());
-            serializeField(metaData.GetMetaDataVersion());
-            
-            string_stream.insert(string_stream.end(), {std::byte{0xFD}, std::byte{0xFF}, std::byte{0xF8}});
-            
-            //最终确定长度
-            std::byte sizeMetaData[2] = {
-                static_cast<std::byte>((string_stream.size() + 2 >> 8) & 0xFF),
-                static_cast<std::byte>(string_stream.size() + 2 & 0xFF)
-            }; 
+                //Name
+                if(!appendString(0x1, metaData.GetName()))
+                {
+                    return {};
+                }
 
-            string_stream.insert(string_stream.begin() + 3, sizeMetaData, sizeMetaData + sizeof(sizeMetaData));
-            
-            return string_stream;
+                //CreateTime
+                const std::int64_t createTime =
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(metaData.GetCreateTime().time_since_epoch()).count();
+
+                if(!appendTLV(0x2, reinterpret_cast<const std::byte*>(&createTime), sizeof(createTime)))
+                {
+                    return {};
+                }
+
+                //ModifyTime
+                const std::int64_t modifyTime =
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(metaData.GetModifyTime().time_since_epoch()).count();
+
+                if(!appendTLV(0x3, reinterpret_cast<const std::byte*>(&modifyTime), sizeof(modifyTime)))
+                {
+                    return {};
+                }
+
+                //Owner
+                if(!appendString(0x4, metaData.GetOwner()))
+                {
+                    return {};
+                }
+
+                //InformationLeave
+                if(!appendString(0x5, metaData.GetInformationLeave()))
+                {
+                    return {};
+                }
+
+                //Extension：显式构造 string，避免命中 fs::path 重载。
+                if(!appendString(0x6, metaData.GetExtension()))
+                {
+                    return {};
+                }
+
+                //FileType：1B。
+                const std::uint8_t fileType =
+                    static_cast<std::uint8_t>(static_cast<std::underlying_type_t<FileType>>(metaData.GetFileType()));
+
+                if(!appendTLV(0x7, reinterpret_cast<const std::byte*>(&fileType), sizeof(fileType)))
+                {
+                    return {};
+                }
+
+                //MetaDataVersion：1B。
+                const std::byte metaDataVersion = metaData.GetMetaDataVersion();
+
+                if(!appendTLV(0x8, &metaDataVersion, sizeof(metaDataVersion)))
+                {
+                    return {};
+                }
+
+                //结束字段。
+                string_stream.insert(string_stream.end(), METADATA_END_SIGN.begin(), METADATA_END_SIGN.end());
+
+                //最终确定长度：整帧总长（含前后签名与长度字段本身），高字节在前。
+                if(string_stream.size() > 0xFFFF)
+                {
+                    FSLogCallback(std::format("[GwongDongFileSystem] SERIALIZE_METADATA_BINARY：MetaData总长度为{}字节，超过帧长度上限65535字节，请精简MetaData内容！", string_stream.size()), Plugin_Logs::logLevel::err, true);
+                    return {};
+                }
+
+                constexpr std::size_t startSigSize = METADATA_START_SIGN.size();
+                const std::uint16_t frameLength = static_cast<std::uint16_t>(string_stream.size());
+
+                string_stream[startSigSize]     = static_cast<std::byte>((frameLength >> 8) & 0xFF);
+                string_stream[startSigSize + 1] = static_cast<std::byte>(frameLength & 0xFF);
+
+                return string_stream;
+            }();
         };
 
         //反序列化二进制元数据到FileMetaData
@@ -788,10 +839,6 @@ namespace GwongDongFileSystem
                 return metaData;
             }(content);
         }
-    
-
-    private:
-
 
     };
 
