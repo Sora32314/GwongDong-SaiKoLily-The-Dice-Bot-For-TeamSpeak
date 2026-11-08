@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <charconv>
 #include <functional>
 #include <loggings.hpp>
 #include <shared_mutex>
@@ -36,6 +37,40 @@ namespace Sessions
      * @param nowFlush 是否立即刷新
      */
     using Sessions_LogCallback = std::function<void(const std::string&, Plugin_Logs::logLevel, bool nowFlush)>;
+
+    /**
+     * @brief 将投掷事件中的玩家标识解析为可显示的用户名。
+     *
+     * GetPlayerID() 既可能是数字形式的客户端 ID，也可能是 "Unknow" 等非数字标识。
+     * 非数字标识直接原样返回，避免 std::stoull 抛异常导致历史查看/导出整段失败。
+     *
+     * @param context 命令上下文，用于查询客户端昵称缓存
+     * @param event 投掷事件
+     * @return 可显示的用户名；查不到时回退为原始玩家标识
+     */
+    inline std::string ResolvePlayerName(Command_Core::ICommandContext& context, auto& event)
+    {
+        const std::string playerID = event.GetPlayerID();
+
+        uint64 id = 0;
+        const char* begin = playerID.data();
+        const char* end = begin + playerID.size();
+        const auto [ptr, ec] = std::from_chars(begin, end, id);
+
+        if(ec != std::errc{} || ptr != end)
+        {
+            return playerID.empty() ? std::string("Unknow") : playerID;
+        }
+
+        const auto names = context.GetUserNameByID(id);
+
+        if(names.empty() || names.front().empty())
+        {
+            return playerID;
+        }
+
+        return names.front();
+    }
     
     /**
      * @brief 设置会话模块的全局日志回调
@@ -1095,7 +1130,7 @@ namespace Sessions::SessionsCommandTemp
                             try
                             {
                                 auto& FileManagerHandler = GwongDongFileSystem::FileManager::GetInstance();
-                                fs::path path;
+                                fs::path path = fs::current_path() / "logs";
                                 switch(term.args.size())
                                 {
                                 case 0: 
@@ -1136,12 +1171,19 @@ namespace Sessions::SessionsCommandTemp
                                     time.clear();
                                     time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
                                     
-                                    resultStr += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
+                                    resultStr += std::format("{} 在 {} 投掷出 ", Sessions::ResolvePlayerName(context, *event), time);
                                     resultStr += std::format("{}\n", event->ParseExpressionStr());
                                     resultStr += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
                                 }
                                 
+                                if(path.empty())
+                                {
+                                    return "SessionsSaveToFile: 文件创建失败！";
+                                }
+
                                 FileManagerHandler.InputBase(path, resultStr, GwongDongFileSystem::WriteMode::Overwrite);
+
+                                return std::format("SessionsSaveToFile: 导出成功，路径：{}", path.string());
                             }
                             catch(const std::exception& e)
                             {

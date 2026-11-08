@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <variant>
 #include <vector>
 #include <fstream>
@@ -39,7 +40,111 @@ namespace GwongDongFileSystem
 
     extern LogCallBack FSLogCallback;
     void SetLogCallback(LogCallBack callback);    
+}
 
+
+namespace GDfs = GwongDongFileSystem;
+
+namespace Adapter
+{
+    //禁止抛出错误，错误由std::optional返回值表示，调用方自行处理。
+
+    //获取本机字节序
+    inline constexpr std::endian GetNativeEndian() noexcept
+    {
+        static_assert(std::endian::native == std::endian::little ||
+                      std::endian::native == std::endian::big,
+                      "Adapter 暂不支持混合字节序平台。");
+
+        return std::endian::native;
+    }
+
+    //转换字节序
+    inline constexpr auto ConvertEndian(auto value, std::endian from, std::endian to) noexcept
+        -> std::optional<decltype(value)>
+        requires((std::is_integral_v<decltype(value)> && !std::is_same_v<decltype(value), bool>) ||
+                 std::is_floating_point_v<decltype(value)>)
+    {
+        if constexpr(sizeof(value) <= 1)
+        {
+            return value;
+        }
+
+        if(from == to)
+        {
+            return value;
+        }
+
+        if constexpr(std::is_floating_point_v<decltype(value)>)
+        {
+            if constexpr(sizeof(value) == sizeof(float))
+            {
+                std::uint32_t intValue = std::bit_cast<std::uint32_t>(value);
+                intValue = std::byteswap(intValue);
+                return std::bit_cast<decltype(value)>(intValue);
+            }
+            else if constexpr(sizeof(value) == sizeof(double))
+            {
+                std::uint64_t intValue = std::bit_cast<std::uint64_t>(value);
+                intValue = std::byteswap(intValue);
+                return std::bit_cast<decltype(value)>(intValue);
+            }
+            else
+            {
+                GDfs::FSLogCallback("[GwongDongFileSystem] ConvertEndian：浮点数类型的字节序转换仅支持float(4B)和double(8B)，其他类型不支持。", Plugin_Logs::logLevel::err, true);
+                return std::nullopt;
+            }
+        }
+        else 
+        {
+            return std::byteswap(value);
+        }
+        
+    }
+
+
+    inline auto ConvertEndian(std::span<const std::byte> data, std::size_t elementSize, std::endian from, std::endian to)
+        -> std::optional<std::vector<std::byte>>
+    {
+        if(data.empty())
+        {
+            GDfs::FSLogCallback("[GwongDongFileSystem] ConvertEndian：输入缓冲区为空，无法进行字节序转换。", Plugin_Logs::logLevel::warn, true);
+            return std::nullopt;
+        }
+
+        std::vector<std::byte> convertedData(data.size());
+        std::copy(data.begin(), data.end(), convertedData.begin());
+
+        if(from == to || elementSize <= 1)
+        {
+            return convertedData;
+        }
+
+        if(convertedData.size() % elementSize != 0)
+        {
+            GDfs::FSLogCallback("[GwongDongFileSystem] ConvertEndian：缓冲区长度不是元素宽度的整数倍，无法按元素翻转字节序。", Plugin_Logs::logLevel::err, true);
+            return std::nullopt;
+        }
+
+        for(std::size_t offset = 0; offset < convertedData.size(); offset += elementSize)
+        {
+            std::reverse(convertedData.begin() + static_cast<std::ptrdiff_t>(offset), convertedData.begin() + static_cast<std::ptrdiff_t>(offset + elementSize));
+        }
+
+        return convertedData;
+    }
+
+    //整块缓冲区视为一个值时使用。
+    inline auto ConvertEndian(std::span<const std::byte> data, std::endian from, std::endian to)
+        -> std::optional<std::vector<std::byte>>
+    {
+        return ConvertEndian(data, data.size(), from, to);
+    }
+
+}
+
+namespace GwongDongFileSystem
+{
     inline constexpr std::array<std::byte, 3> METADATA_START_SIGN{std::byte{0xF8}, std::byte{0xFF}, std::byte{0xFD}};
     inline constexpr std::array<std::byte, 3> METADATA_END_SIGN{std::byte{0xFD}, std::byte{0xFF}, std::byte{0xF8}};
 
@@ -416,8 +521,19 @@ namespace GwongDongFileSystem
                     const std::uint16_t tlvHeader = static_cast<std::uint16_t>((static_cast<std::uint16_t>(tag) << 12) |
                                                                                static_cast<std::uint16_t>(length));
 
-                    string_stream.push_back(static_cast<std::byte>((tlvHeader >> 8) & 0xFF));
-                    string_stream.push_back(static_cast<std::byte>(tlvHeader & 0xFF));
+                    //统一转换为大端
+                    auto tlvHeaderBE = Adapter::ConvertEndian(tlvHeader, Adapter::GetNativeEndian(), std::endian::big);
+
+                    if(tlvHeaderBE.has_value() == false)
+                    {
+                        FSLogCallback("[GwongDongFileSystem] SERIALIZE_METADATA_BINARY：TLV头字节序转换失败。", Plugin_Logs::logLevel::err, true);
+                        return false;
+                    }
+
+                    //写入 2B 大端 TLV 头
+                    const auto* headerBytes = reinterpret_cast<const std::byte*>(&*tlvHeaderBE);
+                    string_stream.insert(string_stream.end(), headerBytes, headerBytes + sizeof(*tlvHeaderBE));
+
 
                     if(length > 0)
                     {
@@ -440,10 +556,19 @@ namespace GwongDongFileSystem
                 }
 
                 //CreateTime
+
                 const std::int64_t createTime =
                     std::chrono::duration_cast<std::chrono::nanoseconds>(metaData.GetCreateTime().time_since_epoch()).count();
 
-                if(!appendTLV(0x2, reinterpret_cast<const std::byte*>(&createTime), sizeof(createTime)))
+                const auto createTimeBE = Adapter::ConvertEndian(createTime, Adapter::GetNativeEndian(), std::endian::big);
+
+                if(createTimeBE.has_value() == false)
+                {
+                    FSLogCallback("[GwongDongFileSystem] SERIALIZE_METADATA_BINARY：CreateTime字节序转换失败。", Plugin_Logs::logLevel::err, true);
+                    return {};
+                }
+
+                if(!appendTLV(0x2, reinterpret_cast<const std::byte*>(&*createTimeBE), sizeof(*createTimeBE)))
                 {
                     return {};
                 }
@@ -452,7 +577,15 @@ namespace GwongDongFileSystem
                 const std::int64_t modifyTime =
                     std::chrono::duration_cast<std::chrono::nanoseconds>(metaData.GetModifyTime().time_since_epoch()).count();
 
-                if(!appendTLV(0x3, reinterpret_cast<const std::byte*>(&modifyTime), sizeof(modifyTime)))
+                const auto modifyTimeBE = Adapter::ConvertEndian(modifyTime, Adapter::GetNativeEndian(), std::endian::big);
+
+                if(modifyTimeBE.has_value() == false)
+                {
+                    FSLogCallback("[GwongDongFileSystem] SERIALIZE_METADATA_BINARY：ModifyTime字节序转换失败。", Plugin_Logs::logLevel::err, true);
+                    return {};
+                }
+
+                if(!appendTLV(0x3, reinterpret_cast<const std::byte*>(&*modifyTimeBE), sizeof(*modifyTimeBE)))
                 {
                     return {};
                 }
@@ -505,9 +638,16 @@ namespace GwongDongFileSystem
                 constexpr std::size_t startSigSize = METADATA_START_SIGN.size();
                 const std::uint16_t frameLength = static_cast<std::uint16_t>(string_stream.size());
 
-                string_stream[startSigSize]     = static_cast<std::byte>((frameLength >> 8) & 0xFF);
-                string_stream[startSigSize + 1] = static_cast<std::byte>(frameLength & 0xFF);
+                const auto frameLengthBE = Adapter::ConvertEndian(frameLength, Adapter::GetNativeEndian(), std::endian::big);
+                if(frameLengthBE.has_value() == false)
+                {
+                    FSLogCallback("[GwongDongFileSystem] SERIALIZE_METADATA_BINARY：FrameLength字节序转换失败。", Plugin_Logs::logLevel::err, true);
+                    return {};
+                }
 
+                std::memcpy(string_stream.data() + startSigSize, &*frameLengthBE, sizeof(*frameLengthBE));
+
+                
                 return string_stream;
             }();
         };
@@ -553,8 +693,20 @@ namespace GwongDongFileSystem
                 }
 
                 //长度字段为整帧总长（含前后签名与长度字段本身），大端。
-                const std::uint16_t frameLength = static_cast<std::uint16_t>(std::to_integer<std::uint16_t>(payLoad[3]) << 8 |
-                                               std::to_integer<std::uint16_t>(payLoad[4]));
+                std::uint16_t rawFrameLength = 0;
+                std::memcpy(&rawFrameLength, payLoad.data() + startSigSize, sizeof(rawFrameLength));
+
+                const auto frameLengthNative = Adapter::ConvertEndian(rawFrameLength,
+                                                                      std::endian::big,
+                                                                      Adapter::GetNativeEndian());
+
+                if(!frameLengthNative)
+                {
+                    FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：FrameLength字节序转换失败。", Plugin_Logs::logLevel::err, true);
+                    return metaData;
+                }
+
+                const std::uint16_t frameLength = *frameLengthNative;
 
                 if(frameLength < overhead || frameLength > payLoad.size())
                 {
@@ -593,10 +745,19 @@ namespace GwongDongFileSystem
                     }
 
                     //TLV头 2B 大端：高4位 tag，低12位 Content 长度。
-                    const std::uint16_t tlvHeader =
-                        static_cast<std::uint16_t>(std::to_integer<std::uint16_t>(payLoad[usedByte]) << 8 |
-                                                   std::to_integer<std::uint16_t>(payLoad[usedByte + 1]));
+                    std::uint16_t rawTlvHeader = 0;
+                    std::memcpy(&rawTlvHeader, payLoad.data() + usedByte, sizeof(rawTlvHeader));
 
+                    const auto tlvHeaderNative = Adapter::ConvertEndian(rawTlvHeader,
+                                                                        std::endian::big,
+                                                                        Adapter::GetNativeEndian());
+                    if(!tlvHeaderNative)
+                    {
+                        FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：MetaData字段头字节序转换失败，请检查文件。", Plugin_Logs::logLevel::warn, true);
+                        return metaData;
+                    }
+
+                    const std::uint16_t tlvHeader = *tlvHeaderNative;
                     const std::uint8_t  tag        = static_cast<std::uint8_t>(tlvHeader >> 12);
                     const std::uint16_t tag_length = static_cast<std::uint16_t>(tlvHeader & 0x0FFFu);
 
@@ -630,8 +791,18 @@ namespace GwongDongFileSystem
 
                         std::uint64_t rawTime = 0;
                         std::memcpy(&rawTime, payLoad.subspan(usedByte, tag_length).data(), sizeof(rawTime));
-                        rawTime = std::byteswap(rawTime);
-                        const std::int64_t nanoseconds = std::bit_cast<std::int64_t>(rawTime);
+
+                        const auto nativeTime = Adapter::ConvertEndian(rawTime,
+                                                                       std::endian::big,
+                                                                       Adapter::GetNativeEndian());
+
+                        if(!nativeTime)
+                        {
+                            FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_BINARY：时间字段字节序转换失败，请检查文件。", Plugin_Logs::logLevel::warn, true);
+                            return metaData;
+                        }
+
+                        const std::int64_t nanoseconds = std::bit_cast<std::int64_t>(*nativeTime);
                         const FileTime time(std::chrono::duration_cast<FileTime::duration>(std::chrono::nanoseconds{nanoseconds}));
 
                         if(tag == 0x2)
@@ -747,7 +918,21 @@ namespace GwongDongFileSystem
 
                     if(cut.find("ModifyTime: ") != std::string::npos)
                     {
-                        metaData.SetModifyTime();
+                        std::string timeStr = cut.substr(cut.find("ModifyTime: ") + std::string("ModifyTime: ").size()).data();
+                        timeStr = timeStr.substr(0, timeStr.find("\n")).data();
+
+                        std::istringstream ss(timeStr);
+                        std::chrono::system_clock::time_point parseModifyTime;
+                        ss >> std::chrono::parse("%Y-%m-%d %H:%M:%S", parseModifyTime);
+
+                        if(!ss.fail())
+                        {
+                            metaData.SetModifyTime(parseModifyTime);
+                        }
+                        else
+                        {
+                            FSLogCallback("[GwongDongFileSystem] DESERIALIZE_METADATA_TEXT：文件存在MetaData::modify_time，但无法解析时间，请检查文件。", Plugin_Logs::logLevel::warn, true);
+                        }
                     }
 
                     if(cut.find("Name: ") != std::string::npos)
@@ -918,8 +1103,13 @@ namespace GwongDongFileSystem
 
 
         //INFO
-        size_t GetSize() const noexcept override
+        size_t GetSize() const override
         {
+            if(!Exists())
+            {
+                return 0;
+            }
+
             return fs::file_size(_path);
         }
 
@@ -1292,7 +1482,7 @@ namespace GwongDongFileSystem
                 return "";
             }
 
-            const std::string metaDataStart = "&_Begin_& Begin MetaData";
+            const std::string metaDataStart = "&_Begin_& Begin MetaData:";
             const std::string metaDataEnd = "&_End_& End MetaData";
 
             std::string contentHead;
@@ -1315,7 +1505,8 @@ namespace GwongDongFileSystem
                 return "";
             }
 
-            return contentHead.substr(startPos + metaDataStart.size(), endPos - startPos - metaDataStart.size());
+            //返回完整帧（含开始/结束标记），与 DeserializeMetaDataText 的输入契约保持一致。
+            return contentHead.substr(startPos, endPos + metaDataEnd.size() - startPos);
         }
 
         //OPERATOR
@@ -1411,6 +1602,41 @@ namespace GwongDongFileSystem
         ~FileManager() = default;
 
         mutable std::mutex mutex;
+
+        //清洗 Windows 文件名中的非法字符，避免会话标题直接作为文件名时创建失败。
+        static std::string SanitizeFileName(std::string_view name)
+        {
+            std::string result;
+            result.reserve(name.size());
+
+            for(char ch : name)
+            {
+                switch(ch)
+                {
+                case '<':
+                case '>':
+                case ':':
+                case '"':
+                case '/':
+                case '\\':
+                case '|':
+                case '?':
+                case '*':
+                    result.push_back('_');
+                    break;
+                default:
+                    result.push_back(static_cast<unsigned char>(ch) < 0x20 ? '_' : ch);
+                    break;
+                }
+            }
+
+            if(result.empty())
+            {
+                result = "Unnamed";
+            }
+
+            return result;
+        }
     public:
         //内容存储查询
         auto NGetFile(const fs::path& path) const
@@ -1549,19 +1775,36 @@ namespace GwongDongFileSystem
             }
             else
             {
-                finalName = name;
+                finalName = SanitizeFileName(name);
             }
 
             if(fileNameExtension.empty())
             {
                 FSLogCallback("[GwongDongFileSystem] fileNameExtension is empty, using default.", Plugin_Logs::logLevel::warn, true);
 
-                fileNameExtension = "nil";
+                fileNameExtension = "txt";
             }
 
-            path.append(finalName).replace_extension(fileNameExtension);
+            std::string extensionStr(fileNameExtension);
+            if(!extensionStr.empty() && extensionStr.front() != '.')
+            {
+                extensionStr.insert(extensionStr.begin(), '.');
+            }
 
-            auto FileOperatorPtr = std::make_shared<FileObject>(std::forward<fs::path>(path), nullptr);
+            path /= finalName + extensionStr;
+
+            const std::string finalPathStr = path.string();
+
+            //同一路径只保留一个 FileObject，避免重复导出时 baseFileArray 累积同路径对象。
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                std::erase_if(baseFileArray, [&](const auto& file) {
+                    return file->GetPathStr() == finalPathStr;
+                });
+            }
+
+            //传左值拷贝，避免 std::forward<fs::path> 把外部 path 移空。
+            auto FileOperatorPtr = std::make_shared<FileObject>(path, nullptr);
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 baseFileArray.push_back(std::move(FileOperatorPtr));
@@ -1722,5 +1965,3 @@ namespace GwongDongFileSystem
 
 
 }
-
-namespace GDfs = GwongDongFileSystem;

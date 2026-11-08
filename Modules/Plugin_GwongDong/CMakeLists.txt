@@ -41,3 +41,8 @@ target_link_libraries(${lib_name} PRIVATE encapsulation_spdlog)
 target_link_libraries(${lib_name} PRIVATE saiko_lily)
 target_link_libraries(${lib_name} PRIVATE gwongdong_filesystem)
 
+# 静态链接 MinGW 运行时，避免插件依赖 libstdc++-6.dll / libgcc_s_seh-1.dll / libwinpthread-1.dll。
+if(MINGW)
+    target_link_options(${lib_name} PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
+
