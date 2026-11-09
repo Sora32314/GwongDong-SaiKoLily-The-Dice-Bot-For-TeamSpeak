@@ -223,7 +223,7 @@ namespace Command_Core
             {
                 if(callback)
                 {
-                    callback->SendResult(user_info.userID, user_info.channelID, user_info.serverID, target, message);
+                    callback->SendResult(user_info.clientID, user_info.channelID, user_info.serverHandler, target, message);
                 }
             }
 
@@ -234,9 +234,20 @@ namespace Command_Core
                 return rawCommand;
             }
 
+            uint64 GetCallingClientID() const override
+            {
+                return user_info.clientID;
+            }
+
+            // 兼容旧名：仅转发，不应在新代码中使用。
             uint64 GetCallingUserID() const override
             {
-                return user_info.userID;
+                return GetCallingClientID();
+            }
+
+            std::string_view GetCallingUserUUID() const override
+            {
+                return user_info.userUUID;
             }
 
             uint64 GetChannelID() const override
@@ -244,9 +255,20 @@ namespace Command_Core
                 return user_info.channelID;
             }
 
+            uint64 GetServerHandler() const override
+            {
+                return user_info.serverHandler;
+            }
+
+            std::string_view GetServerUUID() const override
+            {
+                return user_info.serverUUID;
+            }
+
+            // 兼容旧名：仅转发，不应在新代码中使用。
             uint64 GetServerID() const override
             {
-                return user_info.serverID;
+                return GetServerHandler();
             }
 
             std::string_view GetCallingUserName() const override
@@ -298,7 +320,7 @@ namespace Command_Core
             {
                 std::unordered_map<std::string, ClientInfoPackage> users;
 
-                for(auto& [UUID, ClientInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverID])
+                for(auto& [UUID, ClientInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverHandler])
                 {
                     if(ClientInfo.channelID == user_info.channelID)
                         users.try_emplace(UUID, ClientInfo);
@@ -312,7 +334,7 @@ namespace Command_Core
             {
                 std::unordered_map<std::string, ClientInfoPackage> users;
 
-                for(auto& [UUID, userInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverID])
+                for(auto& [UUID, userInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverHandler])
                 {
                     users.emplace(UUID, userInfo);
                 }
@@ -365,7 +387,7 @@ namespace Command_Core
 
             std::string_view GetUserUUID(uint64 userID) const override
             {
-                for(auto& [UUID, ClientInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverID])
+                for(auto& [UUID, ClientInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverHandler])
                 {
                     if(ClientInfo.clientID == userID)
                     {
@@ -377,7 +399,7 @@ namespace Command_Core
 
             ClientInfoPackage GetUser(uint64 userID) const override
             {
-                for(auto& [UUID, ClientInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverID])
+                for(auto& [UUID, ClientInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverHandler])
                 {
                     if(ClientInfo.clientID == userID)
                     {
@@ -391,7 +413,7 @@ namespace Command_Core
 
             ClientInfoPackage GetUserByName(std::string_view name) const override
             {
-                for(auto& [UUID, ClientInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverID])
+                for(auto& [UUID, ClientInfo] : GetClientInfoStorage().GetClientCache()[user_info.serverHandler])
                 {
                     if(ClientInfo.nickName == name)
                     {
@@ -457,6 +479,5 @@ namespace Command_Core
     {
         return std::make_unique<CommandCheckerImpl>(registry);
     }
-
 
 }

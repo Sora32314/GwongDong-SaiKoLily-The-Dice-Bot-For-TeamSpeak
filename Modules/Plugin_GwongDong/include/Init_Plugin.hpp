@@ -151,8 +151,8 @@ public:
     {
         std::lock_guard<std::mutex> lock(UUID_map_mutex);
 
-        UUIDToHandlerMap.try_emplace(UUID, Handler);
-        HandlerToUUIDMap.try_emplace(Handler, UUID);
+        UUIDToHandlerMap.insert_or_assign(UUID, Handler);
+        HandlerToUUIDMap.insert_or_assign(Handler, UUID);
         return true;
     }
 
@@ -211,7 +211,7 @@ public:
      * @param Handler 连接句柄
      * @return 若存在映射则返回 UUID 字符串视图，否则返回空视图
      */
-    std::string_view GetUUID(uint64 Handler)
+    std::string GetUUID(uint64 Handler)
     {
         std::lock_guard<std::mutex> lock(UUID_map_mutex);
 
@@ -220,7 +220,7 @@ public:
         {
             return it->second;
         }
-        return "";
+        return {};
     }
 
     /**

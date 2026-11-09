@@ -41,35 +41,20 @@ namespace Sessions
     /**
      * @brief 将投掷事件中的玩家标识解析为可显示的用户名。
      *
-     * GetPlayerID() 既可能是数字形式的客户端 ID，也可能是 "Unknow" 等非数字标识。
-     * 非数字标识直接原样返回，避免 std::stoull 抛异常导致历史查看/导出整段失败。
+     * 优先使用投掷时的昵称快照（GetPlayerName），因此离线、换 UUID、身份重置后
+     * 历史记录仍可读；快照为空时回退为原始玩家标识（UUID）。
      *
-     * @param context 命令上下文，用于查询客户端昵称缓存
      * @param event 投掷事件
      * @return 可显示的用户名；查不到时回退为原始玩家标识
      */
-    inline std::string ResolvePlayerName(Command_Core::ICommandContext& context, auto& event)
+    inline std::string ResolvePlayerName(auto& event)
     {
+        const std::string snapshot = event.GetPlayerName();
+        if(!snapshot.empty())
+            return snapshot;
+
         const std::string playerID = event.GetPlayerID();
-
-        uint64 id = 0;
-        const char* begin = playerID.data();
-        const char* end = begin + playerID.size();
-        const auto [ptr, ec] = std::from_chars(begin, end, id);
-
-        if(ec != std::errc{} || ptr != end)
-        {
-            return playerID.empty() ? std::string("Unknow") : playerID;
-        }
-
-        const auto names = context.GetUserNameByID(id);
-
-        if(names.empty() || names.front().empty())
-        {
-            return playerID;
-        }
-
-        return names.front();
+        return playerID.empty() ? std::string("Unknow") : playerID;
     }
     
     /**
@@ -184,8 +169,10 @@ namespace Sessions::SessionTemp
         virtual const ID GetID() const = 0;
         virtual const uint64 GetCreateID() const = 0;
         virtual const uint64 GetChannelID() const = 0;
-        virtual const uint64 GetServerID() const = 0;
-        virtual const std::string_view GetCreateName() const = 0;
+        virtual const uint64 GetServerHandler() const = 0;
+        virtual const std::string_view GetServerUUID() const = 0;
+        virtual const std::string_view GetCreatorName() const = 0;
+        virtual const std::string_view GetCreatorUUID() const = 0;
         virtual const std::string_view GetChannelName() const = 0;
         virtual const std::string_view GetServerName() const = 0;
         virtual const SessionsType GetSessionType() const = 0;
@@ -202,8 +189,10 @@ namespace Sessions::SessionTemp
         virtual void SetID(ID sessionID) = 0;
         virtual void SetCreatorID(ID creatorID) = 0;
         virtual void SetChannelID(ID channelID) = 0;
-        virtual void SetServerID(ID serverID) = 0;
+        virtual void SetServerHandler(ID serverHandler) = 0;
+        virtual void SetServerUUID(std::string_view serverUUID) = 0;
         virtual void SetCreatorName(std::string_view creatorName) = 0;
+        virtual void SetCreatorUUID(std::string_view creatorUUID) = 0;
         virtual void SetChannelName(std::string_view channelName) = 0;
         virtual void SetServerName(std::string_view serverName) = 0;
         virtual void SetSessionType(SessionsType sessionType) = 0;
@@ -420,7 +409,7 @@ namespace Sessions::SessionManagerTemp
          *
          * @return 映射的常量引用
          */
-        virtual const std::unordered_map<std::string, ID>& GetSelectionOfSession() const = 0;
+        virtual const std::unordered_map<std::string, std::unordered_map<std::string, ID>>& GetSelectionOfSession() const = 0;
 
         /**
          * @brief 用户选择（激活）一个会话
@@ -554,6 +543,18 @@ namespace Sessions::SessionsCommandTemp
         std::vector<Args> args;                ///< 子命令参数列表
     };
 
+    
+
+    //Level 0: Creator, Level1: Admins, Level2: Member, Level3: Non Member, Level4: Banned
+    enum class UserLevel : uint8_t
+    {
+        Creator = 0,
+        Admins = 1,
+        Member = 2,
+        NonMember = 3,
+        Banned = 4
+    };
+
 
     /**
      * @brief 会话命令处理类
@@ -676,7 +677,74 @@ namespace Sessions::SessionsCommandTemp
 
             return Terms;
         }
-        
+
+        /**
+         * @brief 由命令上下文构造当前调用者的 User（UUID 为必填，clientID 仅作传输快照）
+         */
+        static Command_Core::User BuildCallingUser(const Command_Core::ICommandContext& context)
+        {
+            auto info = context.GetUserByName(context.GetCallingUserName());
+
+            return Command_Core::User(
+                info.nickName.empty() ? std::string(context.GetCallingUserName()) : info.nickName,
+                info.channelID == 0 ? context.GetChannelID() : info.channelID,
+                context.GetServerHandler(),
+                info.clientID == 0 ? context.GetCallingClientID() : info.clientID,
+                info.uniqueID.empty() ? std::string(context.GetCallingUserUUID()) : info.uniqueID
+            );
+        }
+
+        //鉴权
+        static UserLevel GetUserLevel(TermType command, const Command_Core::ICommandContext& context, const Sessions::SessionTemp::Session* session)
+        {
+            if(!session)
+                return UserLevel::NonMember;
+
+            const std::string_view userUUID = context.GetCallingUserUUID();
+            const ID userID = context.GetCallingClientID();
+            const std::string_view creatorUUID = session->GetCreatorUUID();
+
+            // Creator 以 UUID 为准；仅有旧会话（creatorUUID 为空）时退回 clientID 比对。
+            if((!userUUID.empty() && !creatorUUID.empty() && creatorUUID == userUUID) ||
+               (creatorUUID.empty() && session->GetCreateID() == userID))
+                return UserLevel::Creator;
+            
+            const auto adminsList = session->GetAdmins();
+
+            if(!adminsList.empty())
+            {
+                for(const auto& member : adminsList)
+                {
+                    if(!userUUID.empty() && member.uuid == userUUID)
+                        return UserLevel::Admins;
+                }
+            }
+
+            const auto userList = session->GetUsers();
+            if(!userList.empty())
+            {
+                for(const auto& member : userList)
+                {
+                    if(!userUUID.empty() && member.uuid == userUUID)
+                        return UserLevel::Member;
+                }
+            }
+
+            /*
+            const auto bannedList = session->GetBanneds();
+            if(!bannedList.empty())
+            {
+                for(const auto& member : bannedList)
+                {
+                    if(member.uuid == userUUID)
+                        return UserLevel::Banned;
+                }
+            }
+            */
+            
+            return UserLevel::NonMember;
+        }
+
         /**
          * @brief 执行解析后的命令项列表
          *
@@ -701,10 +769,32 @@ namespace Sessions::SessionsCommandTemp
                 WorkingSession = manager->GetSession(method, std::to_string(UserSelectedSession)).value_or(nullptr);
             }
 
-            if(WorkingSession == nullptr)
+            //刷新工作会话：Create / Select / UnSelect / End 之后统一调用。
+            auto RefreshWorkingSession = [&]()
             {
-                return std::format("Sessions: 用户 {} 未选择任何Session！", context.GetCallingUserName());
-            }         
+                UserSelectedSession = manager->GetSelectedSessionOfUser(context);
+
+                if(UserSelectedSession == 0)
+                {
+                    WorkingSession = nullptr;
+                    return;
+                }
+
+                auto method = Sessions::SessionFetchMethod::Index;
+                WorkingSession = manager->GetSession(method, std::to_string(UserSelectedSession)).value_or(nullptr);
+            };
+
+            //服务器作用域校验：目标会话必须属于当前 serverUUID（映射未建立时放行）。
+            auto IsSameServer = [&](const SessionTemp::Session* session)
+            {
+                const auto serverUUID = context.GetServerUUID();
+                return session != nullptr && (serverUUID.empty() || session->GetServerUUID() == serverUUID);
+            };
+
+            // if(WorkingSession == nullptr)
+            // {
+            //     return std::format("Sessions: 用户 {} 未选择任何Session！", context.GetCallingUserName());
+            // }
 
             //将所有Select移动至开头防止多次重复定义。
             auto Copy_Of_Terms = terms;
@@ -717,29 +807,51 @@ namespace Sessions::SessionsCommandTemp
             for(auto& term : Copy_Of_Terms)
             {
                 context.Log(std::format("Sessions: 命令 {} 开始执行", static_cast<int>(term.type)), Plugin_Logs::logLevel::info, true);
+
+                const auto requiredLevelIt = TermUserLevels.find(term.type);
+                if(requiredLevelIt == TermUserLevels.end())
+                    return "Sessions: 未知或未实现的命令。";
+
+                const UserLevel callerLevel = GetUserLevel(term.type, context, WorkingSession);
+                if(static_cast<uint8_t>(callerLevel) > static_cast<uint8_t>(requiredLevelIt->second))
+                    return std::format("Sessions: 权限不足（当前等级 {}，需要等级 {}）。",
+                                       static_cast<int>(callerLevel),
+                                       static_cast<int>(requiredLevelIt->second));
+
                 switch(term.type)
                 {
                     case TermType::Create: 
                         {   
-                            //检查创建会话参数是否包含Title和Description
-                            if(term.args.size() < 1)
+                            //统一解析标题与描述，避免多分支重复创建。
+                            std::string title = "<Unknown Title>";
+                            std::string description = "No Description.";
+
+                            if(term.args.size() >= 1)
+                                title = term.args[0];
+                            if(term.args.size() >= 2)
+                                description = term.args[1];
+
+                            auto sessionID = manager->CreateSession(context);
+                            manager->InitSession(sessionID, context, title, description);
+
+                            //将创建者加入会话，避免“创建后无工作会话”的死锁。
+                            Command_Core::User creator = BuildCallingUser(context);
+
+                            manager->AddUser(sessionID, { creator }, context);
+
+                            auto method = Sessions::SessionFetchMethod::Index;
+                            auto newSession = manager->GetSession(method, std::to_string(sessionID));
+
+                            if(!newSession.has_value())
                             {
-                                //需要一个外部传入的DiceSystem;
-                                
-                                auto ID = manager->CreateSession(context);
-                                manager->InitSession(ID, context, "<Unknown Title>", "No Description.");
+                                manager->EndSession(sessionID);
+                                return "Sessions: 创建会话失败！";
                             }
-                            else if (term.args.size() < 2)
-                            {
-                                //需要一个外部传入的DiceSystem;
-                                auto ID = manager->CreateSession(context);
-                                manager->InitSession(ID, context, term.args[0], "No Description.");
-                            }
-                            else
-                            {
-                                auto ID = manager->CreateSession(context);
-                                manager->InitSession(ID, context, term.args[0], term.args[1]);
-                            }
+
+                            manager->UserSelectSession(*newSession.value(), creator);
+
+                            //刷新当前命令上下文中的工作会话。
+                            RefreshWorkingSession();
                         }
                         break;
                     case TermType::End: 
@@ -753,6 +865,7 @@ namespace Sessions::SessionsCommandTemp
                                 }
 
                                 manager->EndSession(UserSelectedSession);
+                                RefreshWorkingSession();
                                 break;
                             }
                             
@@ -769,7 +882,16 @@ namespace Sessions::SessionsCommandTemp
                                 return "SessionsEnd: 获取会话失败！";
                             }
 
-                            manager->EndSession(session_.value()->GetID());
+                            if(!IsSameServer(session_.value()))
+                            {
+                                return "SessionsEnd: 该会话不属于当前服务器！";
+                            }
+
+                            const ID endedSessionID = session_.value()->GetID();
+                            manager->EndSession(endedSessionID);
+
+                            if(UserSelectedSession == endedSessionID)
+                                RefreshWorkingSession();
                         }
                         break;
                     case TermType::Status:
@@ -837,7 +959,7 @@ namespace Sessions::SessionsCommandTemp
                                     createTimeStr.pop_back();
                                 }
 
-                                context.SendResult(std::format("Sessions: 获取会话信息成功！\n会话ID: {}\n会话标题: {}\n会话描述: {}\n会话类型: {}\n会话创建时间: {}\n会话创建者: {}\n会话创建者ID: {}", info->GetID(), info->GetTitle(), info->GetDescription(), session_type, createTimeStr, info->GetCreateName(), info->GetCreateID()), context.GetMessageTarget());
+                                context.SendResult(std::format("Sessions: 获取会话信息成功！\n会话ID: {}\n会话标题: {}\n会话描述: {}\n会话类型: {}\n会话创建时间: {}\n会话创建者: {}\n会话创建者ID: {}", info->GetID(), info->GetTitle(), info->GetDescription(), session_type, createTimeStr, info->GetCreatorName(), info->GetCreateID()), context.GetMessageTarget());
 
                                 std::string user_info_string = [&]()
                                     {
@@ -891,7 +1013,7 @@ namespace Sessions::SessionsCommandTemp
                             {
                                 for (auto &&iter : SessionsList_.value())
                                 {
-                                    result += std::format("会话ID: {} \t 会话名称: {}\n 会话简介: {}\n 会话创建者: {}\n 创建时间: {}\n", iter.get().GetID(), iter.get().GetTitle(), iter.get().GetDescription(), iter.get().GetCreateName(), iter.get().GetCreateTime());
+                                    result += std::format("会话ID: {} \t 会话名称: {}\n 会话简介: {}\n 会话创建者: {}\n 创建时间: {}\n", iter.get().GetID(), iter.get().GetTitle(), iter.get().GetDescription(), iter.get().GetCreatorName(), iter.get().GetCreateTime());
                                 }
                                 context.Log(std::format("Sessions: 搜索会话成功！\n列表：{}", result), Plugin_Logs::logLevel::info, false);
                                 context.SendResult(std::format("Sessions: 搜索会话成功！\n搜索结果：\n{}", result), context.GetMessageTarget());
@@ -909,13 +1031,13 @@ namespace Sessions::SessionsCommandTemp
                         break;
                     case TermType::Select:
                         {
-                            //通过参数获取查找方式
-                            auto method = FetchMethodMap.at(term.args[0]);
-
                             if(term.args.size() != 2)
                             {
-                                return "SessionsSelect: 参数不足！";
+                                return "SessionsSelect: 参数不足！需要 [方式, 参数]。";
                             }
+
+                            //通过参数获取查找方式
+                            auto method = FetchMethodMap.at(term.args[0]);
 
                             //获取会话
                             auto session_ = manager->GetSession(method, term.args[1]);
@@ -924,43 +1046,51 @@ namespace Sessions::SessionsCommandTemp
                             {
                                 return "SessionsSelect: 获取会话失败！";
                             }
-                            
-                            //获取并构造一个用户
-                            auto tmp = context.GetUserByName(context.GetCallingUserName());
-                            Command_Core::User user(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
 
-                            //添加用户UUID到被选择Session的映射
+                            if(!IsSameServer(session_.value()))
+                            {
+                                return "SessionsSelect: 该会话不属于当前服务器！";
+                            }
+
+                            //获取并构造一个用户
+                            Command_Core::User user = BuildCallingUser(context);
+
+                            //添加用户UUID到被选择Session的映射（内部会校验成员资格）
                             manager->UserSelectSession(*session_.value(), user);
+
+                            //选择成功后刷新工作会话
+                            RefreshWorkingSession();
                         }
                         break;
                     case TermType::UnSelect:
                         {
                             if(term.args.size() > 2)
-                            {
                                 return "SessionsSelect: 参数过多！";
-                            }
 
-                            //通过参数获取查找方式
+                            Command_Core::User user = BuildCallingUser(context);
 
-                            if(term.args.size() < 1)
+                            if(term.args.empty())
                             {
-                                //获取当前用户默认选择的ID
-                                auto selectedSessionID = manager->GetSelectedSessionOfUser(context);
-                                #ifdef _DEBUG
-                                    context.Log(std::format("SessionsSelect: 获取当前用户默认选择的会话成功！会话ID：{}", selectedSessionID), Plugin_Logs::logLevel::info, false);
-                                    context.SendResult(std::format("SessionsSelect: 获取当前用户默认选择的会话成功！会话ID：{}", selectedSessionID), context.GetMessageTarget());
-                                #endif
-                                
-                                auto tmp = context.GetUserByName(context.GetCallingUserName());
-                                Command_Core::User user(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
-                                
+                                //取消当前选择
+                                const ID selectedSessionID = manager->GetSelectedSessionOfUser(context);
+                                if(selectedSessionID == 0)
+                                    return "SessionsSelect: 当前没有选择任何会话！";
+
                                 auto method = Sessions::SessionFetchMethod::Index;
-                                manager->UserUnselectSession(*(manager->GetSession(method, std::to_string(selectedSessionID)).value_or(nullptr)), user);
+                                auto selectedSession = manager->GetSession(method, std::to_string(selectedSessionID));
+                                if(!selectedSession.has_value())
+                                    return "SessionsSelect: 会话不存在！";
+
+                                manager->UserUnselectSession(*selectedSession.value(), user);
+                                RefreshWorkingSession();
                                 break;
                             }
 
+                            if(term.args.size() != 2)
+                                return "SessionsSelect: 参数不足！需要 [方式, 参数]。";
+
                             auto method = FetchMethodMap.at(term.args[0]);
-                            
+
                             //获取会话
                             auto session_ = manager->GetSession(method, term.args[1]);
 
@@ -969,31 +1099,24 @@ namespace Sessions::SessionsCommandTemp
                                 return "SessionsSelect: 获取会话失败！";
                             }
 
-                            //获取并构造一个用户
-                            auto tmp = context.GetUserByName(context.GetCallingUserName());
-                            Command_Core::User user(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
+                            if(!IsSameServer(session_.value()))
+                            {
+                                return "SessionsSelect: 该会话不属于当前服务器！";
+                            }
 
                             manager->UserUnselectSession(*session_.value(), user);
+                            RefreshWorkingSession();
                         }
                         break;
                     case TermType::UserJoin:
                         {
                             std::vector<Command_Core::User> users;
-                            Sessions::SessionTemp::Session * workingSession;
                             std::string result = "";
 
-                            if(UserSelectedSession == 0)
+                            Sessions::SessionTemp::Session* workingSession = WorkingSession;
+                            if(workingSession == nullptr)
                             {
-                                auto method = Sessions::SessionFetchMethod::Creator;
-                                workingSession = manager->GetSession(method, context.GetCallingUserName()).value_or(nullptr);
-                                if(workingSession == nullptr)
-                                {
-                                    return "Sessions: 当前用户不是会话创建者或Session不存在！";
-                                }
-                            }
-                            else
-                            {
-                                workingSession = WorkingSession;
+                                return "Sessions: 当前没有工作会话！";
                             }
 
                             //每一个arg是一个字符串类型的用户名
@@ -1009,7 +1132,7 @@ namespace Sessions::SessionsCommandTemp
                                     result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
-                                Command_Core::User newUser(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
+                                Command_Core::User newUser(tmp.nickName, tmp.channelID, context.GetServerHandler(), tmp.clientID, tmp.uniqueID);
 
                                 //创建逻辑用户对象
                                 users.push_back(newUser);
@@ -1021,27 +1144,19 @@ namespace Sessions::SessionsCommandTemp
 
                             manager->AddUser(workingSession->GetID(), users, context);
 
-                            return result;
+                            if(!result.empty())
+                                context.SendResult(result, context.GetMessageTarget());
                         }
                         break;
                     case TermType::UserQuit:
                         {
                             std::vector<Command_Core::User> users;
-                            Sessions::SessionTemp::Session * workingSession;
                             std::string result = "";
 
-                            if(UserSelectedSession == 0)
+                            Sessions::SessionTemp::Session* workingSession = WorkingSession;
+                            if(workingSession == nullptr)
                             {
-                                auto method = Sessions::SessionFetchMethod::Creator;
-                                workingSession = manager->GetSession(method, context.GetCallingUserName()).value_or(nullptr);
-                                if(workingSession == nullptr)
-                                {
-                                    return "Sessions: 当前用户不是会话创建者或Session不存在！";
-                                }
-                            }
-                            else
-                            {
-                                workingSession = WorkingSession;
+                                return "Sessions: 当前没有工作会话！";
                             }
     
                             //每一个arg是一个字符串类型的用户名
@@ -1057,7 +1172,7 @@ namespace Sessions::SessionsCommandTemp
                                     result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
-                                Command_Core::User newUser(tmp.nickName, tmp.channelID, context.GetServerID(), tmp.clientID, tmp.uniqueID);
+                                Command_Core::User newUser(tmp.nickName, tmp.channelID, context.GetServerHandler(), tmp.clientID, tmp.uniqueID);
 
                                 //创建逻辑用户对象
                                 users.push_back(newUser);
@@ -1065,14 +1180,23 @@ namespace Sessions::SessionsCommandTemp
                             }
 
                             manager->RemoveUser(workingSession->GetID(), users, context);
-                            return result;
+
+                            if(!result.empty())
+                                context.SendResult(result, context.GetMessageTarget());
                         }
                         break;
                     case TermType::AdminsSet: 
+                        {
+                            
+                        }
                         break;
                     case TermType::AdminsRemove: 
                         break;
                     case TermType::AdminsList: 
+                        {
+
+                            
+                        }
                         break;
                     case TermType::History:
                         {
@@ -1095,7 +1219,7 @@ namespace Sessions::SessionsCommandTemp
                                     time.clear();
                                     time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
 
-                                    result += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
+                                    result += std::format("{} 在 {} 投掷出 ", ResolvePlayerName(*event), time);
                                     result += std::format("{}\n", event->ParseExpressionStr());
                                     result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
                                 }
@@ -1112,7 +1236,7 @@ namespace Sessions::SessionsCommandTemp
                                     time.clear();
                                     time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
 
-                                    result += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
+                                    result += std::format("{} 在 {} 投掷出 ", ResolvePlayerName(*event), time);
                                     result += std::format("{}\n", event->ParseExpressionStr());
                                     result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
                                 }
@@ -1171,7 +1295,7 @@ namespace Sessions::SessionsCommandTemp
                                     time.clear();
                                     time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
                                     
-                                    resultStr += std::format("{} 在 {} 投掷出 ", Sessions::ResolvePlayerName(context, *event), time);
+                                    resultStr += std::format("{} 在 {} 投掷出 ", Sessions::ResolvePlayerName(*event), time);
                                     resultStr += std::format("{}\n", event->ParseExpressionStr());
                                     resultStr += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
                                 }
@@ -1385,6 +1509,37 @@ namespace Sessions::SessionsCommandTemp
         
 
 
+        static inline std::unordered_map<TermType, UserLevel> TermUserLevels =
+        {
+            {TermType::Create, UserLevel::NonMember},
+            {TermType::End, UserLevel::Admins},
+            {TermType::Status, UserLevel::Member},
+            {TermType::Info, UserLevel::NonMember},
+            {TermType::List, UserLevel::NonMember},
+            {TermType::Search, UserLevel::NonMember},
+            {TermType::Activate, UserLevel::Admins},
+            {TermType::Rest, UserLevel::Admins},
+            {TermType::Select, UserLevel::NonMember},
+            {TermType::UnSelect, UserLevel::NonMember},
+            {TermType::UserJoin, UserLevel::Member},
+            {TermType::UserQuit, UserLevel::Admins},
+            {TermType::AdminsSet, UserLevel::Creator},
+            {TermType::AdminsRemove, UserLevel::Creator},
+            {TermType::AdminsList, UserLevel::Member},
+            {TermType::UserList, UserLevel::Member},
+            {TermType::Bind, UserLevel::Creator},
+            {TermType::History, UserLevel::Member},
+            {TermType::SaveToFile, UserLevel::Creator},
+            {TermType::CleanHistory, UserLevel::Admins},
+            {TermType::Set, UserLevel::Admins},
+            {TermType::Export, UserLevel::Admins},
+            {TermType::Import, UserLevel::Admins},
+            {TermType::Help, UserLevel::Banned},
+            {TermType::Others, UserLevel::Banned},
+            {TermType::NULLCommand, UserLevel::Banned}
+        };
+
+
         /**
          * @brief 获取历史记录的辅助函数
          *
@@ -1415,7 +1570,7 @@ namespace Sessions::SessionsCommandTemp
                     time.clear();
                     time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
 
-                    result += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
+                    result += std::format("{} 在 {} 投掷出 ", ResolvePlayerName(*event), time);
                     result += std::format("{}\n", event->ParseExpressionStr());
                     result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
                 }
@@ -1432,7 +1587,7 @@ namespace Sessions::SessionsCommandTemp
                     time.clear();
                     time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
 
-                    result += std::format("{} 在 {} 投掷出 ", context.GetUserNameByID(std::stoull(event->GetPlayerID())), time);
+                    result += std::format("{} 在 {} 投掷出 ", ResolvePlayerName(*event), time);
                     result += std::format("{}\n", event->ParseExpressionStr());
                     result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
                 }

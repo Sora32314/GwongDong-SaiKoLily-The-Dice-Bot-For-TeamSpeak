@@ -222,7 +222,7 @@ namespace SaiKoLily
              * @param _rng 随机数生成器引用
              * @param _player 投掷者 ID
              */
-            DiceEventImpl(std::vector<int64_t>& _faces, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player = "Unknow");
+            DiceEventImpl(std::vector<int64_t>& _faces, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player = "Unknow", std::string_view _playerName = "");
 
             /**
              * @brief 通过面数列表和最小面值列表构造
@@ -233,7 +233,7 @@ namespace SaiKoLily
              * @param _rng 随机数生成器引用
              * @param _player 投掷者 ID
              */
-            DiceEventImpl(std::vector<int64_t>& _faces, std::vector<int64_t>& _faces_min, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player = "Unknow");
+            DiceEventImpl(std::vector<int64_t>& _faces, std::vector<int64_t>& _faces_min, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player = "Unknow", std::string_view _playerName = "");
             
             /**
              * @brief 通过配置项列表构造（支持复杂表达式）
@@ -244,7 +244,7 @@ namespace SaiKoLily
              * @param _player 投掷者 ID
              * @param constant_offset 总常数偏移量
              */
-            DiceEventImpl(std::vector<std::pair<DiceConfig, uint32_t>>& _term_configs, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player = "Unknow", int64_t constant_offset = 0);
+            DiceEventImpl(std::vector<std::pair<DiceConfig, uint32_t>>& _term_configs, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player = "Unknow", int64_t constant_offset = 0, std::string_view _playerName = "");
 
             ~DiceEventImpl() = default;;
 
@@ -264,6 +264,7 @@ namespace SaiKoLily
             uint32_t GetDiceCount() override;
             std::vector<int64_t> GetFaces() override;
             std::string GetPlayerID() override;
+            std::string GetPlayerName() override;
             TimePoint GetTimeInfo() override;
             int64_t GetPointsInTotal() override;
             int64_t GetOffset() override;
@@ -309,6 +310,7 @@ namespace SaiKoLily
             //其他元信息
             TimePoint time_info;
             std::string playerID;
+            std::string playerName;
             //随机数生成器
             std::mt19937_64& rng;
 
@@ -350,6 +352,7 @@ namespace SaiKoLily
 
             //roll多个自由类型骰子
             int64_t RollDice(std::vector<std::pair<DiceConfig, uint32_t>>& configs, std::string_view player = "Unknow", int64_t offset = 0) override;
+            int64_t RollDice(std::vector<std::pair<DiceConfig, uint32_t>>& configs, std::string_view player, std::string_view playerName, int64_t offset = 0) override;
 
 
             //快速骰子......

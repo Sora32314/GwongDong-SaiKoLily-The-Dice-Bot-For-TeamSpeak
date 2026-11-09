@@ -99,7 +99,7 @@ namespace SaiKoLily
         //     playerID = _player;
         // }
 
-        DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player) : rng(_rng), dice_count(_faces.size())
+        DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player, std::string_view _playerName) : rng(_rng), dice_count(_faces.size())
         {
             //初始化时间信息
             time_info = std::chrono::system_clock::now();
@@ -107,9 +107,10 @@ namespace SaiKoLily
             faces = _faces;
             faces_min.resize(faces.size(), 1);
             playerID = _player;
+            playerName = _playerName;
         }
 
-        DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::vector<int64_t>& _faces_min, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player) : rng(_rng), dice_count(_faces.size())
+        DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::vector<int64_t>& _faces_min, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player, std::string_view _playerName) : rng(_rng), dice_count(_faces.size())
         {
             //初始化时间信息
             time_info = std::chrono::system_clock::now();
@@ -117,13 +118,15 @@ namespace SaiKoLily
             faces_min = _faces_min;
             faces = _faces;
             playerID = _player;
+            playerName = _playerName;
         }
 
-        DiceEventImpl::DiceEventImpl(std::vector<std::pair<DiceConfig, uint32_t>>& _term_configs, std::seed_seq &_seq, std::mt19937_64 &_rng, std::string_view _player, int64_t constant_offset) : rng(_rng), dice_count(_term_configs.size())
+        DiceEventImpl::DiceEventImpl(std::vector<std::pair<DiceConfig, uint32_t>>& _term_configs, std::seed_seq &_seq, std::mt19937_64 &_rng, std::string_view _player, int64_t constant_offset, std::string_view _playerName) : rng(_rng), dice_count(_term_configs.size())
         {
             time_info = std::chrono::system_clock::now();
 
             playerID = _player;
+            playerName = _playerName;
 
             for(auto&& term_config : _term_configs)
             {
@@ -218,6 +221,11 @@ namespace SaiKoLily
         std::string DiceEventImpl::GetPlayerID()
         {
             return playerID;
+        }
+
+        std::string DiceEventImpl::GetPlayerName()
+        {
+            return playerName;
         }
 
         TimePoint DiceEventImpl::GetTimeInfo()
@@ -361,13 +369,14 @@ namespace SaiKoLily
         {
             //尝试为新的用户构建空的存储结构
             std::vector<std::shared_ptr<IDiceEvent>> empty_list;
-            player_dices_lists.try_emplace(player.data(), empty_list);
+            const std::string playerKey(player);
+            player_dices_lists.try_emplace(playerKey, empty_list);
             //构建vector用以匹配.emplace_back调用的构造参数
             std::vector<int64_t> faces{face};
 
             //创建骰子事件集
-            player_dices_lists.at(std::string(player)).push_back(std::make_shared<DiceEventImpl>(faces, seed_seq, g_rng, player));
-            auto& dice_event = player_dices_lists.at(player.data()).back();
+            player_dices_lists.at(playerKey).push_back(std::make_shared<DiceEventImpl>(faces, seed_seq, g_rng, player));
+            auto& dice_event = player_dices_lists.at(playerKey).back();
             dice_event->RollDiceEvent();
 
             global_dices_lists.push_back(dice_event);
@@ -378,8 +387,13 @@ namespace SaiKoLily
 
         int64_t DiceSystemImpl::RollDice(std::vector<std::pair<DiceConfig, uint32_t>> &configs, std::string_view player, int64_t offset) 
         {
+            return RollDice(configs, player, "", offset);
+        }
+
+        int64_t DiceSystemImpl::RollDice(std::vector<std::pair<DiceConfig, uint32_t>> &configs, std::string_view player, std::string_view playerName, int64_t offset) 
+        {
             #ifdef _DEBUG
-                s_logCallback(std::format("正在尝试投掷骰子，玩家ID：{}，骰子配置项数量：{}，偏移值：{}。", player, configs.size(), offset), Plugin_Logs::logLevel::info, true);
+                s_logCallback(std::format("正在尝试投掷骰子，玩家UUID：{}，昵称：{}，骰子配置项数量：{}，偏移值：{}。", player, playerName, configs.size(), offset), Plugin_Logs::logLevel::info, true);
             #endif
 
             if(configs.empty())
@@ -390,11 +404,12 @@ namespace SaiKoLily
 
             //尝试为新的用户构建空的存储结构
             std::vector<std::shared_ptr<IDiceEvent>> empty_list;
-            player_dices_lists.try_emplace(player.data(), empty_list);
+            const std::string playerKey(player);
+            player_dices_lists.try_emplace(playerKey, empty_list);
 
             //创建骰子事件集
-            player_dices_lists.at(player.data()).push_back(std::make_shared<DiceEventImpl>(configs, seed_seq, g_rng, player));
-            auto& dice_event = player_dices_lists.at(player.data()).back();
+            player_dices_lists.at(playerKey).push_back(std::make_shared<DiceEventImpl>(configs, seed_seq, g_rng, player, 0, playerName));
+            auto& dice_event = player_dices_lists.at(playerKey).back();
 
             dice_event->SetOffset(offset);
             dice_event->RollDiceEvent();

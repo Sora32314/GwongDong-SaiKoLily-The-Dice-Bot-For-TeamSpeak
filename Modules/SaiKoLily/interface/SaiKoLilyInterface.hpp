@@ -90,9 +90,15 @@ namespace SaiKoLily
 
             /**
              * @brief 获取投掷此事件的玩家标识符
-             * @return 玩家 ID 字符串（通常为用户昵称或 UUID）
+             * @return 玩家 UUID（canonical）
              */
             virtual std::string GetPlayerID() = 0;
+
+            /**
+             * @brief 获取投掷时的玩家昵称快照
+             * @return 投掷当时的昵称；即使玩家离线或更换 UUID 仍可显示
+             */
+            virtual std::string GetPlayerName() = 0;
 
             /**
              * @brief 获取事件发生的时间点
@@ -247,6 +253,17 @@ namespace SaiKoLily
              * @return 投掷总点数（含修正）
              */
             virtual int64_t RollDice(std::vector<std::pair<DiceConfig, uint32_t>>& configs, std::string_view player = "Unknow", int64_t offset = 0) = 0;
+
+            /**
+             * @brief 根据配置项列表执行复杂投掷，并记录投掷者昵称快照
+             *
+             * @param configs 骰子配置与计数的配对列表
+             * @param player 投掷者 UUID（canonical）
+             * @param playerName 投掷者昵称快照（用于离线历史显示）
+             * @param offset 总点数修正值
+             * @return 投掷总点数（含修正）
+             */
+            virtual int64_t RollDice(std::vector<std::pair<DiceConfig, uint32_t>>& configs, std::string_view player, std::string_view playerName, int64_t offset = 0) = 0;
 
             /**
              * @brief 获取最近一次投掷的总点数结果
@@ -556,6 +573,6 @@ namespace Sessions::SessionManagerTemp
          *
          * @return 映射的常量引用，键为用户 UUID，值为会话 ID
          */
-        virtual const std::unordered_map<std::string, ID>& GetSelectionOfSession() const = 0;
+        virtual const std::unordered_map<std::string, std::unordered_map<std::string, ID>>& GetSelectionOfSession() const = 0;
     };
 }

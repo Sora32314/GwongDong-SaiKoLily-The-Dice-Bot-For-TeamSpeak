@@ -5,6 +5,9 @@
 #include "../include/Init_Plugin.hpp"
 #include "Init_Plugin.hpp"
 
+#include <algorithm>
+#include <shared_mutex>
+
 
 #define PLUGIN_NAME                                         "GwongDong SaiKoLily(骰娘小广东)"
 #define PLUGIN_DESCRIPTION                                  "TeamSpeak 骰娘BOT\"小广东\"。"
@@ -39,7 +42,7 @@ auto& clientCache = Command_Core::GetClientInfoStorage();
 static ServerUUID ServerUUIDCache;
 
 
-std::mutex clientCacheMutex;
+std::shared_mutex clientCacheMutex;
 
 namespace Plugin
 {
@@ -147,9 +150,9 @@ FillInfoPackageFunc FillInfoPackage = [](uint64 serverConnectionHandlerID,
     Command_Core::InfoFetcher info;//{0, 0, 0, "", std::nullopt, std::nullopt, std::nullopt, Command_Core::ClientInfoPackage};
     
     // 填充基本ID信息
-    info.userID = fromID;
+    info.clientID = fromID;
     info.channelID = channelID;
-    info.serverID = serverConnectionHandlerID;
+    info.serverHandler = serverConnectionHandlerID;
     
     // 获取服务器UUID
     if (auto serverUUID = ServerUUIDCache.GetUUID(serverConnectionHandlerID); !serverUUID.empty()) {
@@ -160,6 +163,12 @@ FillInfoPackageFunc FillInfoPackage = [](uint64 serverConnectionHandlerID,
     SafeString userName;
     if (ts3Functions.getClientVariableAsString(serverConnectionHandlerID, fromID, CLIENT_NICKNAME, &userName.ptr) == ERROR_ok) {
         info.UserName = static_cast<std::string>(userName);
+    }
+
+    //获取用户UUID
+    SafeString userUUID;
+    if (ts3Functions.getClientVariableAsString(serverConnectionHandlerID, fromID, CLIENT_UNIQUE_IDENTIFIER, &userUUID.ptr) == ERROR_ok) {
+        info.userUUID = static_cast<std::string>(userUUID);
     }
     
     // 获取服务器名称
@@ -270,8 +279,8 @@ void ts3plugin_onChannelSubscribeFinishedEvent(uint64 serverConnectionHandlerID)
                 if(ts3Functions.getClientVariableAsString(serverConnectionHandlerID, *p, CLIENT_NICKNAME, &nickname_ptr) != ERROR_ok) {
                     logInstance->Logging(std::format("获取UID:{}的用户名失败！", *uid_ptr), Plugin_Logs::logLevel::warn, false);
                 }
-                std::string nickname = nickname_ptr;
-                std::string uid = uid_ptr;
+                std::string nickname = nickname_ptr ? nickname_ptr : "";
+                std::string uid = uid_ptr ? uid_ptr : "";
                 anyID clientID = *p;
                 logInstance->Logging(std::format("获取频道ID为{}\t用户ID为{}\t用户名:{}\tUUID:{},在服务器句柄:{}", channelID, *p, nickname, uid, serverConnectionHandlerID), Plugin_Logs::logLevel::info, false);
 
@@ -283,7 +292,10 @@ void ts3plugin_onChannelSubscribeFinishedEvent(uint64 serverConnectionHandlerID)
                 ts3Functions.freeMemory(nickname_ptr);
                 ts3Functions.freeMemory(uid_ptr);
 
-                clientCache.GetClientCache()[serverConnectionHandlerID].try_emplace(uid, clientInfo);
+                {
+                    std::unique_lock<std::shared_mutex> lock(clientCacheMutex);
+                    clientCache.GetClientCache()[serverConnectionHandlerID].insert_or_assign(uid, clientInfo);
+                }
             }
         }
 
@@ -569,6 +581,12 @@ LIB_EXPORT void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHand
             
             logInstance->Logging(disconnectMsg, Plugin_Logs::logLevel::warn, false);
             
+            // 清理该连接的用户缓存，避免重连后残留过期 clientID。
+            {
+                std::unique_lock<std::shared_mutex> lock(clientCacheMutex);
+                clientCache.GetClientCache().erase(serverConnectionHandlerID);
+            }
+
             // 销毁服务器UUID以及连接句柄的双向映射
             ServerUUIDCache.DeleteByHandler(serverConnectionHandlerID);
 
@@ -655,45 +673,116 @@ int ts3plugin_onTextMessageEvent(uint64 serverConnectionHandlerID, anyID targetM
 
 LIB_EXPORT void ts3plugin_onClientMoveEvent(uint64 serverConnectionHandlerID, anyID clientID, anyID oldChannelID, uint64 newChannelID, int visibility, const char *moveMessage)
 {
-    //leaving
-    logInstance->Logging(std::format("移动信息：{}", moveMessage), Plugin_Logs::logLevel::info, false);
+    logInstance->Logging(std::format("移动信息：{}", moveMessage ? moveMessage : ""), Plugin_Logs::logLevel::info, false);
 
-    //退出也再move中
+    std::unique_lock<std::shared_mutex> lock(clientCacheMutex);
+    auto& cache = clientCache.GetClientCache()[serverConnectionHandlerID];
 
-    for(auto&& [uid, info] : clientCache.GetClientCache()[serverConnectionHandlerID])
+    auto it = std::find_if(cache.begin(), cache.end(),
+        [clientID](const auto& item) { return item.second.clientID == clientID; });
+
+    // newChannelID == 0 表示离开服务器
+    if (newChannelID == 0)
     {
-        if(info.clientID == clientID)
+        if (it != cache.end())
         {
-            {
-                std::lock_guard<std::mutex> lock(clientCacheMutex);
-                info.channelID = newChannelID;
-            }
-
-            logInstance->Logging(std::format("用户\"{}\"从频道{}移动到频道{}。", info.nickName, oldChannelID, info.channelID), Plugin_Logs::logLevel::info, false);
-
-            return;
+            logInstance->Logging(std::format("用户\"{}\"已离开服务器。", it->second.nickName), Plugin_Logs::logLevel::info, false);
+            cache.erase(it);
         }
+        return;
     }
 
+    if (it != cache.end())
+    {
+        it->second.channelID = newChannelID;
+        logInstance->Logging(std::format("用户\"{}\"从频道{}移动到频道{}。", it->second.nickName, oldChannelID, newChannelID), Plugin_Logs::logLevel::info, false);
+        return;
+    }
+
+    // 缓存中没有该客户端：补齐 UUID/昵称后写入（覆盖“快照之后才加入”的用户）。
+    SafeString uid;
+    SafeString nickname;
+    if (ts3Functions.getClientVariableAsString(serverConnectionHandlerID, clientID, CLIENT_UNIQUE_IDENTIFIER, &uid.ptr) != ERROR_ok || !uid.ptr)
+    {
+        logInstance->Logging(std::format("获取客户端 {} 的 UUID 失败，无法加入用户缓存。", clientID), Plugin_Logs::logLevel::warn, false);
+        return;
+    }
+
+    if (ts3Functions.getClientVariableAsString(serverConnectionHandlerID, clientID, CLIENT_NICKNAME, &nickname.ptr) != ERROR_ok || !nickname.ptr)
+    {
+        logInstance->Logging(std::format("获取客户端 {} 的昵称失败。", clientID), Plugin_Logs::logLevel::warn, false);
+    }
+
+    Command_Core::ClientInfoPackage info;
+    info.nickName = nickname.ptr ? nickname.ptr : "";
+    info.clientID = clientID;
+    info.channelID = newChannelID;
+    info.uniqueID = uid.ptr;
+
+    cache.insert_or_assign(info.uniqueID, info);
+    logInstance->Logging(std::format("用户\"{}\"加入频道{}（UUID：{}）。", info.nickName, newChannelID, info.uniqueID), Plugin_Logs::logLevel::info, false);
 }
 
 LIB_EXPORT void ts3plugin_onClientMoveMovedEvent(uint64 serverConnectionHandlerID, anyID clientID, anyID oldChannelID, uint64 newChannelID, int visibility, anyID moverID, const char* moverName, const char* moverUniqueIdentifier, const char* moveMessage)
 {
-    auto mover_nickname = clientCache.GetClientCache()[serverConnectionHandlerID].at(moverUniqueIdentifier).nickName;
+    std::unique_lock<std::shared_mutex> lock(clientCacheMutex);
+    auto& cache = clientCache.GetClientCache()[serverConnectionHandlerID];
 
-    for(auto&& [uid, info] : clientCache.GetClientCache()[serverConnectionHandlerID])
+    std::string moverNickname;
+    auto moverIt = cache.find(moverUniqueIdentifier ? moverUniqueIdentifier : "");
+    if (moverIt != cache.end())
     {
-        if(info.clientID == clientID)
-        {
-            {
-                std::lock_guard<std::mutex> lock(clientCacheMutex);
-                info.channelID = newChannelID;
-            }
+        moverNickname = moverIt->second.nickName;
+    }
 
-            logInstance->Logging(std::format("用户\"{}\"被用户\"{}\"从频道{}移动到频道{}。", info.nickName, std::string(std::move(mover_nickname)),oldChannelID, info.channelID), Plugin_Logs::logLevel::info, false);
+    auto it = std::find_if(cache.begin(), cache.end(),
+        [clientID](const auto& item) { return item.second.clientID == clientID; });
 
-            return;
-        }
+    if (it != cache.end())
+    {
+        it->second.channelID = newChannelID;
+        logInstance->Logging(std::format("用户\"{}\"被用户\"{}\"从频道{}移动到频道{}。", it->second.nickName, moverNickname, oldChannelID, newChannelID), Plugin_Logs::logLevel::info, false);
+    }
+    else
+    {
+        logInstance->Logging(std::format("被移动的客户端 {} 不在用户缓存中。", clientID), Plugin_Logs::logLevel::warn, false);
+    }
+}
+
+LIB_EXPORT void ts3plugin_onClientDisconnected(uint64 serverConnectionHandlerID, anyID clientID, const char* disconnectMsg)
+{
+    std::unique_lock<std::shared_mutex> lock(clientCacheMutex);
+    auto& cache = clientCache.GetClientCache()[serverConnectionHandlerID];
+
+    auto it = std::find_if(cache.begin(), cache.end(),
+        [clientID](const auto& item) { return item.second.clientID == clientID; });
+
+    if (it != cache.end())
+    {
+        logInstance->Logging(std::format("用户\"{}\"断开连接：{}", it->second.nickName, disconnectMsg ? disconnectMsg : ""), Plugin_Logs::logLevel::info, false);
+        cache.erase(it);
+    }
+}
+
+LIB_EXPORT void ts3plugin_onClientDisplayNameChanged(uint64 serverConnectionHandlerID, anyID clientID, const char* newDisplayName, const char* uniqueClientIdentifier)
+{
+    const std::string uuid = uniqueClientIdentifier ? uniqueClientIdentifier : "";
+
+    std::unique_lock<std::shared_mutex> lock(clientCacheMutex);
+    auto& cache = clientCache.GetClientCache()[serverConnectionHandlerID];
+
+    auto it = cache.find(uuid);
+    if (it == cache.end())
+    {
+        it = std::find_if(cache.begin(), cache.end(),
+            [clientID](const auto& item) { return item.second.clientID == clientID; });
+    }
+
+    if (it != cache.end())
+    {
+        const std::string oldName = it->second.nickName;
+        it->second.nickName = newDisplayName ? newDisplayName : "";
+        logInstance->Logging(std::format("用户\"{}\"改名为\"{}\"。", oldName, it->second.nickName), Plugin_Logs::logLevel::info, false);
     }
 }
 

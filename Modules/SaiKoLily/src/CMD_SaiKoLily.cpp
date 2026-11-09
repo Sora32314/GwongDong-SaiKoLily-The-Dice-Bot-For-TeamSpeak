@@ -61,7 +61,7 @@ namespace SaiKoLily::DiceCommand
             }
 
             //3.执行投掷
-            std::string res = ExecuteDiceRoll(terms, dice_system, context.GetCallingUserID());
+            std::string res = ExecuteDiceRoll(terms, dice_system, context.GetCallingUserUUID(), context.GetCallingUserName());
 
             //4.返回结果
             context.SendResult(res, context.GetMessageTarget());
@@ -166,7 +166,7 @@ namespace SaiKoLily::DiceCommand
     }
 
 
-    std::string RollCommand::ExecuteDiceRoll(const std::vector<ExpressionTerm>& terms, SaiKoLily::DiceSystem::IDiceSystem* dice_system, uint64_t userID)
+    std::string RollCommand::ExecuteDiceRoll(const std::vector<ExpressionTerm>& terms, SaiKoLily::DiceSystem::IDiceSystem* dice_system, std::string_view playerUUID, std::string_view playerName)
     {
         auto tmp = SaiKoLily::DiceSystem::DiceSystemImpl();
         if(!dice_system)
@@ -227,7 +227,7 @@ namespace SaiKoLily::DiceCommand
         }
 #endif
 
-        total = dice_system->RollDice(configs, std::to_string(userID), 0);
+        total = dice_system->RollDice(configs, playerUUID, playerName, 0);
 
         auto lastEvent = dice_system->GetLastEvent();
         std::string signed_string;
@@ -590,7 +590,7 @@ namespace SaiKoLily::CheckCommand
 
                         dice_expr_str += std::format("排除常量部分总点数: {}\t", total_without_constant);
 
-                        std::string player_name = context.GetUserNameByID(context.GetServerID(), std::stoull(event->GetPlayerID()))[0];
+                        std::string player_name = event->GetPlayerName().empty() ? event->GetPlayerID() : event->GetPlayerName();
 
                         result << std::format("玩家:{} 投掷时间:{} 骰子点数（不含常量）:{} 最终总点数:{}", player_name, time_str, dice_expr_str, event->GetPointsInTotal()) << "\n";
                         count--;

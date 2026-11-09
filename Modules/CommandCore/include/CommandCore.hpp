@@ -30,6 +30,7 @@ namespace Command_Core
      * @brief 此结构体用来描述如何获取用户的信息。
      * 
      * userID: 用户ID
+     * userUUID：用户UUID
      * channelID: 频道ID
      * serverID: 服务器ID
      * serverUUID: 服务器UUID
@@ -39,10 +40,11 @@ namespace Command_Core
      */
     struct InfoFetcher
     {
-        uint64 userID;
-        uint64 channelID;
-        uint64 serverID;
-        std::string serverUUID;
+        anyID  clientID      = 0;   ///< 运行时客户端 ID（仅传输，不可作为身份）
+        uint64 channelID     = 0;
+        uint64 serverHandler = 0;   ///< 运行时服务器连接句柄（仅传输）
+        std::string userUUID;       ///< 用户身份键（canonical）
+        std::string serverUUID;     ///< 服务器作用域键（canonical）
         std::optional<std::string> UserName;
         std::optional<std::string> ChannelName;
         std::optional<std::string> ServerName;
@@ -168,17 +170,17 @@ namespace Command_Core
         /**
          * @brief 向指定目标发送消息
          * 
-         * @param userID 用户ID
-         * @param channelID 频道ID
-         * @param serverID 服务器ID
+         * @param clientID 客户端 ID（仅传输）
+         * @param channelID 频道 ID
+         * @param serverHandler 服务器连接句柄（仅传输）
          * @param target 目标类型
          * @param message 消息内容
          */
         virtual void SendResult
         (
-            uint64 userID,
+            uint64 clientID,
             uint64 channelID,
-            uint64 serverID,
+            uint64 serverHandler,
             MessageTarget target,
             const std::string& message
         ) = 0;
@@ -231,8 +233,22 @@ namespace Command_Core
         virtual std::string_view GetServerName() const = 0;
 
         /**
-         * @brief 获取命令调用者的唯一数字标识符
-         * @return 用户 ID
+         * @brief 获取命令调用者的运行时客户端 ID（仅用于传输，不可作为身份）
+         * @return 客户端 ID
+         */
+        virtual uint64 GetCallingClientID() const = 0;
+
+        /**
+         * @brief 获取命令调用者的唯一标识符（UUID）
+         *
+         * UUID 是身份键：同一 Identity 下跨重连稳定。
+         *
+         * @return 用户 UUID
+         */
+        virtual std::string_view GetCallingUserUUID() const = 0;
+
+        /**
+         * @brief 兼容旧名：等同于 GetCallingClientID()
          */
         virtual uint64 GetCallingUserID() const = 0;
 
@@ -243,8 +259,19 @@ namespace Command_Core
         virtual uint64 GetChannelID() const = 0;
 
         /**
-         * @brief 获取当前命令所在服务器的唯一数字标识符
-         * @return 服务器 ID，私聊或频道场景可能返回 0 或特殊值
+         * @brief 获取当前命令所在服务器的运行时连接句柄（仅用于传输）
+         * @return 服务器连接句柄
+         */
+        virtual uint64 GetServerHandler() const = 0;
+
+        /**
+         * @brief 获取当前命令所在服务器的唯一标识符（UUID，稳定作用域）
+         * @return 服务器 UUID；若尚未建立映射则返回空
+         */
+        virtual std::string_view GetServerUUID() const = 0;
+
+        /**
+         * @brief 兼容旧名：等同于 GetServerHandler()
          */
         virtual uint64 GetServerID() const = 0;
 

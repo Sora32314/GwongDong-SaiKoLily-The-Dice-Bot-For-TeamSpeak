@@ -1,5 +1,7 @@
 #include <SessionManager.hpp>
 
+#include <algorithm>
+
 namespace SaiKoLily
 {
     static IDiceContextProvider* s_diceContextProvider = nullptr;
@@ -34,7 +36,7 @@ namespace Sessions::Session
         explicit SessionImpl(ID _id,
             std::optional<uint64> _creatorID, 
             std::optional<uint64> _channelID, 
-            std::optional<uint64> _serverID,
+            std::optional<uint64> _serverHandler,
             SessionsType _type,
             std::string_view _creatorName = "Unknow",
             std::string_view _channelName = "Unknow",
@@ -46,7 +48,7 @@ namespace Sessions::Session
         sessionID(_id),
         creatorID(_creatorID.value_or(0)),
         channelID(_channelID.value_or(0)),
-        serverID(_serverID.value_or(0)),
+        serverHandler(_serverHandler.value_or(0)),
         creatorName(_creatorName),
         channelName(_channelName),
         serverName(_serverName),
@@ -82,13 +84,21 @@ namespace Sessions::Session
         {
             return channelID;
         }
-        const uint64 GetServerID() const override
+        const uint64 GetServerHandler() const override
         {
-            return serverID;
+            return serverHandler;
         }
-        const std::string_view GetCreateName() const override
+        const std::string_view GetServerUUID() const override
+        {
+            return serverUUID;
+        }
+        const std::string_view GetCreatorName() const override
         {
             return creatorName;
+        }
+        const std::string_view GetCreatorUUID() const override
+        {
+            return creatorUUID;
         }
         const std::string_view GetChannelName() const override
         {
@@ -158,13 +168,21 @@ namespace Sessions::Session
         {
             this->channelID = channelID;
         }
-        void SetServerID(ID serverID) override
+        void SetServerHandler(ID serverHandler) override
         {
-            this->serverID = serverID;
+            this->serverHandler = serverHandler;
+        }
+        void SetServerUUID(std::string_view serverUUID) override
+        {
+            this->serverUUID = std::string(serverUUID);
         }
         void SetCreatorName(std::string_view creatorName) override
         {
             this->creatorName = creatorName.data();
+        }
+        void SetCreatorUUID(std::string_view creatorUUID) override
+        {
+            this->creatorUUID = std::string(creatorUUID);
         }
         void SetChannelName(std::string_view channelName) override
         {
@@ -193,9 +211,26 @@ namespace Sessions::Session
                 return;
             }
 
+            // 以 UUID 为键做 upsert：重连后同一 UUID 只刷新 clientID/昵称，不重复插入。
             for(auto& user : users)
             {
-                this->users.push_back(user);
+                auto existing = std::find_if(this->users.begin(), this->users.end(),
+                    [&user](const Command_Core::User& item)
+                    {
+                        return !item.uuid.empty() && item.uuid == user.uuid;
+                    });
+
+                if(existing != this->users.end())
+                {
+                    existing->name = user.name;
+                    existing->channelID = user.channelID;
+                    existing->serverID = user.serverID;
+                    existing->userID = user.userID;
+                }
+                else
+                {
+                    this->users.push_back(user);
+                }
             }
         }
         virtual void AddAdmins(std::vector<Command_Core::Admin> admins) override
@@ -210,14 +245,14 @@ namespace Sessions::Session
         {
             for(auto& user : users)
             {
-                this->users.erase(std::remove_if(this->users.begin(), this->users.end(), [&user](const Command_Core::User& u) { return u.userID == user.userID; }), this->users.end());
+                this->users.erase(std::remove_if(this->users.begin(), this->users.end(), [&user](const Command_Core::User& u) { return u.uuid == user.uuid; }), this->users.end());
             }
         }
         virtual void RemoveAdmins(std::vector<Command_Core::Admin> admins) override
         {
             for (auto& admin : admins)
             {
-                this->admins.erase(std::remove_if(this->admins.begin(), this->admins.end(), [&admin](const Command_Core::Admin& a) { return a.userID == admin.userID; }), this->admins.end());
+                this->admins.erase(std::remove_if(this->admins.begin(), this->admins.end(), [&admin](const Command_Core::Admin& a) { return a.uuid == admin.uuid; }), this->admins.end());
             }
         }
 
@@ -233,7 +268,7 @@ namespace Sessions::Session
         {
             for(auto& user_item : users)
             {
-                if(user.userID == user_item.userID)
+                if(user.uuid == user_item.uuid)
                 {
                     return false;
                 }
@@ -246,8 +281,10 @@ namespace Sessions::Session
         ID sessionID;
         uint64 creatorID;
         uint64 channelID;
-        uint64 serverID;
+        uint64 serverHandler;
+        std::string serverUUID;
         std::string creatorName;
+        std::string creatorUUID;
         std::string channelName;
         std::string serverName;
         SessionsType type;
@@ -360,9 +397,9 @@ namespace Sessions::SessionManager
 
             SessionsPtr session = std::make_unique<Session::SessionImpl>(
                 session_id,
-                context.GetCallingUserID(),
+                context.GetCallingClientID(),
                 context.GetChannelID(),
-                context.GetServerID(),
+                context.GetServerHandler(),
                 session_type,
                 context.GetCallingUserName(),
                 context.GetChannelName(),
@@ -371,6 +408,10 @@ namespace Sessions::SessionManager
                 "NULL",
                 std::move(dice_system)
             );
+
+            //记录创建者 UUID 与服务器 UUID（身份/作用域判定以 UUID 为准）。
+            session->SetCreatorUUID(context.GetCallingUserUUID());
+            session->SetServerUUID(context.GetServerUUID());
 
             //释放Dice_System指针所有权。
             dice_system.release();
@@ -385,6 +426,12 @@ namespace Sessions::SessionManager
             std::lock_guard<std::mutex> session_manager_lock(mutex);
             //删除会话
             sessions.erase(sessionID);
+
+            //清理所有指向该会话的选择映射
+            for(auto& [serverUUID, selections] : each_user_selected_sessions)
+            {
+                std::erase_if(selections, [sessionID](const auto& item) { return item.second == sessionID; });
+            }
         };
 
         bool InitSession(ID sessionID, const Command_Core::ICommandContext& context, std::string_view title, std::string_view description) override
@@ -397,7 +444,8 @@ namespace Sessions::SessionManager
                 {
                     sessions.at(sessionID)->SetChannelID(context.GetChannelID());
                     sessions.at(sessionID)->SetChannelName(context.GetChannelName());
-                    sessions.at(sessionID)->SetServerID(context.GetServerID());
+                    sessions.at(sessionID)->SetServerHandler(context.GetServerHandler());
+                    sessions.at(sessionID)->SetServerUUID(context.GetServerUUID());
                     sessions.at(sessionID)->SetServerName(context.GetServerName());
                     sessions.at(sessionID)->SetCreatorName(context.GetCallingUserName());
                     sessions.at(sessionID)->SetTitle(title);
@@ -405,16 +453,17 @@ namespace Sessions::SessionManager
                 }
                 else if(sessions.at(sessionID)->GetSessionType() == Sessions::SessionsType::Private)
                 {
-                    sessions.at(sessionID)->SetCreatorID(context.GetCallingUserID());
+                    sessions.at(sessionID)->SetCreatorID(context.GetCallingClientID());
                     sessions.at(sessionID)->SetCreatorName(context.GetCallingUserName());
                     sessions.at(sessionID)->SetTitle(title);
                     sessions.at(sessionID)->SetDescription(description);
                 }
                 else
                 {
-                    sessions.at(sessionID)->SetCreatorID(context.GetCallingUserID());
+                    sessions.at(sessionID)->SetCreatorID(context.GetCallingClientID());
                     sessions.at(sessionID)->SetCreatorName(context.GetCallingUserName());
-                    sessions.at(sessionID)->SetServerID(context.GetServerID());
+                    sessions.at(sessionID)->SetServerHandler(context.GetServerHandler());
+                    sessions.at(sessionID)->SetServerUUID(context.GetServerUUID());
                     sessions.at(sessionID)->SetServerName(context.GetServerName());
                     sessions.at(sessionID)->SetTitle(title);
                     sessions.at(sessionID)->SetDescription(description);
@@ -468,13 +517,10 @@ namespace Sessions::SessionManager
                     return false;
                 }
                 users.erase(std::remove_if(users.begin(), users.end(), [](auto& user) { return user.uuid == ""; }), users.end());
-                std::erase_if(users, [&](const auto& user) {
-                    return !(sessions.at(sessionID)->DistinctUsers(user));
-                });
 
                 if(users.empty())
                 {
-                    context.SendResult(std::format("添加用户失败，所添加的所有用户均已存在在Session：{}({})中", sessionID, sessions.at(sessionID)->GetTitle()), Command_Core::MessageTarget::CurrentChannel);
+                    context.SendResult("添加用户失败，用户 UUID 为空！", Command_Core::MessageTarget::CurrentChannel);
                     return false;
                 }
 
@@ -614,83 +660,124 @@ namespace Sessions::SessionManager
         ID GetSelectedSessionOfUser(const Command_Core::ICommandContext& context) override
         {
             std::lock_guard<std::mutex> lock(mutex);
-            
-            //获取当前用户
-            ID targetSession_id = 0;
-            ID userID = context.GetCallingUserID();
-            std::string userUUID(context.GetUserUUID(context.GetCallingUserID()));
+            return GetSelectedSessionOfUserUnlocked(context);
+        }
 
-            bool isUserSelectedSession = each_user_selected_sessions.contains(userUUID);
+        /// @warning 调用方必须已持有 mutex。
+        ID GetSelectedSessionOfUserUnlocked(const Command_Core::ICommandContext& context)
+        {
+            const ID userID = context.GetCallingClientID();
+            const std::string userUUID(context.GetCallingUserUUID());
+            const std::string serverUUID(context.GetServerUUID());
 
-            //第一优先级：用户选择的Session
-            if(isUserSelectedSession)
+            //第一优先级：用户主动选择（按 serverUUID 分桶，避免多服务器互相串）
+            if(!userUUID.empty())
             {
-                targetSession_id = each_user_selected_sessions.at(userUUID);
-                
-                return targetSession_id;
-            }
-            else if(!isUserSelectedSession) //第二优先级，如果当前用户在Session中，则使用当前用户加入的Session
-            {
-                //获取用户加入的Session
-                for(const auto& session : GetSessionsList())
+                const auto serverIt = each_user_selected_sessions.find(serverUUID);
+                if(serverIt != each_user_selected_sessions.end())
                 {
-                    for(const auto& user : session.get().GetUsers())
-                    {
-                        if(user.userID == userID)
-                        {
-                            targetSession_id = session.get().GetID();
-                            return targetSession_id;
-                        }
-                    }
+                    const auto userIt = serverIt->second.find(userUUID);
+                    if(userIt != serverIt->second.end())
+                        return userIt->second;
                 }
             }
 
-            //第三优先级，如果当前频道绑定Session，则使用绑定的Session
-            Sessions::SessionFetchMethod method = Sessions::SessionFetchMethod::Index;
-            if(SessionManagerImpl::GetSession(method, std::to_string(context.GetChannelID())).has_value())
+            const auto allSessions = GetSessionsList();
+
+            //第二优先级：用户已加入的会话（UUID 优先，clientID 仅在 UUID 缺失时兜底）
+            for(const auto& sessionRef : allSessions)
             {
-                targetSession_id = SessionManagerImpl::GetSession(method, std::to_string(context.GetChannelID())).value()->GetID();
-                return targetSession_id;
+                const auto& session = sessionRef.get();
+
+                if(!serverUUID.empty() && session.GetServerUUID() != serverUUID)
+                    continue;
+
+                for(const auto& member : session.GetUsers())
+                {
+                    const bool matched = !userUUID.empty()
+                        ? (!member.uuid.empty() && member.uuid == userUUID)
+                        : (member.userID == userID);
+
+                    if(matched)
+                        return session.GetID();
+                }
             }
-            else
+
+            //第三优先级：频道绑定（同服务器、Channel 类型、频道 ID 匹配）
+            for(const auto& sessionRef : allSessions)
             {
-                return 0;
+                const auto& session = sessionRef.get();
+
+                if(session.GetSessionType() != Sessions::SessionsType::Channel)
+                    continue;
+                if(session.GetChannelID() != context.GetChannelID())
+                    continue;
+                if(!serverUUID.empty() && session.GetServerUUID() != serverUUID)
+                    continue;
+
+                return session.GetID();
             }
-            
+
+            return 0;
         }
 
-        const std::unordered_map<std::string, ID>& GetSelectionOfSession() const override
+        const std::unordered_map<std::string, std::unordered_map<std::string, ID>>& GetSelectionOfSession() const override
         {
             return each_user_selected_sessions;
         }
 
         void UserSelectSession(const SessionTemp::Session& session, const Command_Core::User& user) override
         {
-            if(each_user_selected_sessions.contains(user.uuid))
+            if(user.uuid.empty())
             {
-                cmds_logCallback(std::format("用户:{}({})选择了Session:{}({})，但是该用户已选择过Session:{}({}),于是将其更新为当前选择的最新Session！", user.name, user.userID, session.GetID(), session.GetTitle(), each_user_selected_sessions.at(user.uuid), sessions.at(each_user_selected_sessions.at(user.uuid))->GetTitle()), Plugin_Logs::logLevel::warn, false);
-                each_user_selected_sessions.at(user.uuid) = session.GetID();
+                cmds_logCallback(std::format("用户:{}({})缺少 UUID，拒绝选择Session:{}({})。", user.name, user.userID, session.GetID(), session.GetTitle()), Plugin_Logs::logLevel::warn, false);
                 return;
             }
-            else
+
+            // 必须先加入会话，才能选择它。
+            const auto members = session.GetUsers();
+            const bool isMember = std::any_of(members.begin(), members.end(),
+                [&user](const Command_Core::User& member)
+                {
+                    return !member.uuid.empty() && member.uuid == user.uuid;
+                });
+
+            if(!isMember)
             {
-                cmds_logCallback(std::format("用户:{}({})选择了Session:{}({})", user.name, user.userID, session.GetID(), session.GetTitle()), Plugin_Logs::logLevel::info, false);
+                cmds_logCallback(std::format("用户:{}({})尚未加入Session:{}({})，拒绝选择。", user.name, user.userID, session.GetID(), session.GetTitle()), Plugin_Logs::logLevel::warn, false);
+                return;
             }
-            each_user_selected_sessions.try_emplace(user.uuid, session.GetID());
+
+            auto& serverSelections = each_user_selected_sessions[std::string(session.GetServerUUID())];
+            const auto existing = serverSelections.find(user.uuid);
+
+            if(existing != serverSelections.end())
+            {
+                const ID oldSessionID = existing->second;
+                const auto oldSession = sessions.find(oldSessionID);
+                const std::string oldTitle = (oldSession != sessions.end()) ? std::string(oldSession->second->GetTitle()) : "<已结束>";
+
+                cmds_logCallback(std::format("用户:{}({})选择了Session:{}({})，但是该用户已选择过Session:{}({}),于是将其更新为当前选择的最新Session！", user.name, user.userID, session.GetID(), session.GetTitle(), oldSessionID, oldTitle), Plugin_Logs::logLevel::warn, false);
+                existing->second = session.GetID();
+                return;
+            }
+
+            cmds_logCallback(std::format("用户:{}({})选择了Session:{}({})", user.name, user.userID, session.GetID(), session.GetTitle()), Plugin_Logs::logLevel::info, false);
+            serverSelections.try_emplace(user.uuid, session.GetID());
         }
 
         void UserUnselectSession(const SessionTemp::Session& session, const Command_Core::User& user) override
         {
-            if(!each_user_selected_sessions.contains(user.uuid))
+            const std::string serverUUID(session.GetServerUUID());
+            auto serverIt = each_user_selected_sessions.find(serverUUID);
+            if(serverIt == each_user_selected_sessions.end() || !serverIt->second.contains(user.uuid))
             {
                 cmds_logCallback(std::format("用户:{}({})取消选择了Session:{}({})，但是该用户未选择过Session", user.name, user.userID, session.GetID(), session.GetTitle()), Plugin_Logs::logLevel::warn, false);
                 return;
             }
-            else
-            {
-                cmds_logCallback(std::format("用户:{}({})取消选择了Session:{}({})", user.name, user.userID, session.GetID(), session.GetTitle()), Plugin_Logs::logLevel::info, false);
-            }
-            each_user_selected_sessions.erase(user.uuid);
+
+            cmds_logCallback(std::format("用户:{}({})取消选择了Session:{}({})", user.name, user.userID, session.GetID(), session.GetTitle()), Plugin_Logs::logLevel::info, false);
+            serverIt->second.erase(user.uuid);
         }
 
 
@@ -698,15 +785,9 @@ namespace Sessions::SessionManager
         SaiKoLily::DiceSystem::IDiceSystem* GetDiceSystem(const Command_Core::ICommandContext& context) 
         {
             std::lock_guard<std::mutex> lock(mutex);
-            
-            //获取当前用户  
-            ID targetSession_id = 0;
-            ID userID = context.GetCallingUserID();
-            std::string userUUID(context.GetUserUUID(context.GetCallingUserID()));
 
-            bool isUserSelectedSession = each_user_selected_sessions.contains(userUUID);
-
-            targetSession_id = GetSelectedSessionOfUser(context);
+            // 注意：此处已持有 mutex，必须调用无锁版本，避免自死锁。
+            const ID targetSession_id = GetSelectedSessionOfUserUnlocked(context);
             
             //TODO:SessionManager绑定Session处理
 
@@ -721,7 +802,7 @@ namespace Sessions::SessionManager
             }
             else
             {
-                cmds_logCallback(std::format("用户:{}({})未选择Session，且不是任何Session中的成员或频道未绑定Session，无法获取DiceSystem！", context.GetCallingUserName(), context.GetCallingUserID()), Plugin_Logs::logLevel::warn, false);
+                cmds_logCallback(std::format("用户:{}({})未选择Session，且不是任何Session中的成员或频道未绑定Session，无法获取DiceSystem！", context.GetCallingUserName(), context.GetCallingClientID()), Plugin_Logs::logLevel::warn, false);
             }
 
             return nullptr;
@@ -757,7 +838,7 @@ namespace Sessions::SessionManager
                             break;
                         }
 
-                        if(iter->second->GetCreateName() == arg)
+                        if(iter->second->GetCreatorName() == arg)
                         {
                             ret.push_back(*iter->second);
                         }
@@ -895,7 +976,7 @@ namespace Sessions::SessionManager
 
                     while (iter != sessions.end())
                     {
-                        if(iter->second->GetCreateName() == arg)
+                        if(iter->second->GetCreatorName() == arg)
                         {
                             cmds_logCallback(std::format("已查询到会话！"), Plugin_Logs::logLevel::info, false);
                             return iter->second.get();
@@ -985,7 +1066,7 @@ namespace Sessions::SessionManager
                     
                     while (iter != sessions.end())
                     {
-                        if(iter->second->GetCreateName() == arg)
+                        if(iter->second->GetCreatorName() == arg)
                         {
                             ret.push_back(*iter->second);
                         }
@@ -1046,8 +1127,8 @@ namespace Sessions::SessionManager
     private:
         mutable std::mutex mutex;
         std::unordered_map<ID, SessionsPtr> sessions;
-        //                  UUID        SessionID
-        std::unordered_map<std::string, ID> each_user_selected_sessions;
+        //                  ServerUUID   UserUUID   SessionID
+        std::unordered_map<std::string, std::unordered_map<std::string, ID>> each_user_selected_sessions;
         ID next_session_id = 1;
     };
 }
