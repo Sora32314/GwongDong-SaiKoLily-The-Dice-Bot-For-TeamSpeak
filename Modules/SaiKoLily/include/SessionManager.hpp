@@ -178,11 +178,15 @@ namespace Sessions::SessionTemp
         virtual const SessionsType GetSessionType() const = 0;
         virtual const std::string_view GetTitle() const = 0;
         virtual const std::string_view GetDescription() const = 0;
-        virtual const std::vector<Command_Core::User> GetUsers() const = 0;
-        virtual const std::vector<Command_Core::Admin> GetAdmins() const = 0;
+
+        [[deprecated("使用GetUserImpl，此后SessionImpl中只存在带有权限等级的User。")]]
+        virtual const std::vector<Command_Core::UserEntity> GetUsers() const = 0;
+
+        virtual const std::vector<Command_Core::UserEntity> GetAdminEntities() const = 0;
+        virtual const std::vector<Command_Core::UserEntity> GetUserEntity() const = 0;
         virtual const std::chrono::utc_clock::time_point GetCreateTime() const = 0;
         virtual const std::chrono::utc_clock::time_point GetAliveTime() const = 0;
-        virtual const size_t GetUserCount() const = 0;
+        virtual const size_t GetUserEntityCount() const = 0;
         virtual const size_t GetAdminCount() const = 0; 
 
 
@@ -198,10 +202,10 @@ namespace Sessions::SessionTemp
         virtual void SetSessionType(SessionsType sessionType) = 0;
         virtual void SetTitle(std::string_view title) = 0;
         virtual void SetDescription(std::string_view description) = 0;
-        virtual void AddUsers(std::vector<Command_Core::User> users) = 0;
-        virtual void AddAdmins(std::vector<Command_Core::Admin> admins) = 0;
-        virtual void RemoveUsers(std::vector<Command_Core::User> users) = 0;
-        virtual void RemoveAdmins(std::vector<Command_Core::Admin> admins) = 0;
+        virtual void AddUsers(std::vector<Command_Core::UserEntity> users) = 0;
+        virtual void AddAdmins(std::vector<Command_Core::UserEntity> admins) = 0;
+        virtual void RemoveUsers(std::vector<Command_Core::UserEntity> users) = 0;
+        virtual void RemoveAdmins(std::vector<Command_Core::UserEntity> admins) = 0;
 
 
         /**
@@ -210,7 +214,7 @@ namespace Sessions::SessionTemp
          * @param user 待检查的用户对象
          * @return 若用户不存在于会话中则返回 true，否则返回 false
          */
-        virtual bool DistinctUsers(Command_Core::User user) = 0;
+        virtual bool DistinctUsers(Command_Core::UserEntity& user) = 0;
 
         /**
          * @brief 获取此会话绑定的骰子系统实例
@@ -317,7 +321,7 @@ namespace Sessions::SessionManagerTemp
          * @param context 命令上下文
          * @return 添加成功返回 true，否则返回 false
          */
-        virtual bool AddUser(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) = 0;
+        virtual bool AddUser(ID sessionID, std::vector<Command_Core::UserEntity> user, const Command_Core::ICommandContext& context) = 0;
 
         /**
          * @brief 移除用户从指定会话
@@ -327,7 +331,7 @@ namespace Sessions::SessionManagerTemp
          * @param context 命令上下文
          * @return 移除成功返回 true，否则返回 false
          */
-        virtual bool RemoveUser(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) = 0;
+        virtual bool RemoveUser(ID sessionID, std::vector<Command_Core::UserEntity> user, const Command_Core::ICommandContext& context) = 0;
 
         /**
          * @brief 设置用户为管理员
@@ -337,7 +341,7 @@ namespace Sessions::SessionManagerTemp
          * @param context 命令上下文
          * @return 设置成功返回 true，否则返回 false
          */
-        virtual bool SetAdmin(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) = 0;
+        virtual bool SetAdmin(ID sessionID, std::vector<Command_Core::UserEntity> user, const Command_Core::ICommandContext& context) = 0;
 
         /**
          * @brief 移除会话中的管理员
@@ -347,7 +351,7 @@ namespace Sessions::SessionManagerTemp
          * @param context 命令上下文
          * @return 移除成功返回 true，否则返回 false
          */
-        virtual bool RemoveAdmin(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) = 0;
+        virtual bool RemoveAdmin(ID sessionID, std::vector<Command_Core::UserEntity> user, const Command_Core::ICommandContext& context) = 0;
 
         /**
          * @brief 获取指定会话中的所有用户
@@ -356,7 +360,7 @@ namespace Sessions::SessionManagerTemp
          * @param context 命令上下文
          * @return 包含所有用户的向量
          */
-        virtual std::vector<Command_Core::User> GetUsers(ID sessionID, const Command_Core::ICommandContext& context)  = 0;
+        virtual std::vector<Command_Core::UserEntity> GetUsers(ID sessionID, const Command_Core::ICommandContext& context)  = 0;
 
         /**
          * @brief 获取指定会话中的所有管理员
@@ -365,7 +369,7 @@ namespace Sessions::SessionManagerTemp
          * @param context 命令上下文
          * @return 包含所有管理员的用户向量
          */
-        virtual std::vector<Command_Core::Admin> GetAdmins(ID sessionID, const Command_Core::ICommandContext& context) = 0;
+        virtual std::vector<Command_Core::UserEntity> GetAdmins(ID sessionID, const Command_Core::ICommandContext& context) = 0;
 
         /**
          * @brief 获取当前所有已经存在的会话ID。
@@ -422,7 +426,7 @@ namespace Sessions::SessionManagerTemp
          * @warning 选择会话前应确保用户已加入该会话，否则可能导致不一致状态。
          * @warning 选择会话优先级：1. 用户主动选择会话 > 2.用户加入会话自动选择最后加入的会话 > 3.频道绑定的会话
          */
-        virtual void UserSelectSession(const SessionTemp::Session& session, const Command_Core::User& user) = 0;
+        virtual void UserSelectSession(const SessionTemp::Session& session, const Command_Core::UserEntity& user) = 0;
 
         /**
          * @brief 用户取消选择（取消激活）一个会话
@@ -432,7 +436,7 @@ namespace Sessions::SessionManagerTemp
          * @param session 被取消选择的会话对象
          * @param user 执行取消选择的用户
          */
-        virtual void UserUnselectSession(const SessionTemp::Session& session, const Command_Core::User& user) = 0;
+        virtual void UserUnselectSession(const SessionTemp::Session& session, const Command_Core::UserEntity& user) = 0;
 
         // ----- 实现 IDiceContextProvider -----
         
@@ -543,17 +547,6 @@ namespace Sessions::SessionsCommandTemp
         std::vector<Args> args;                ///< 子命令参数列表
     };
 
-    
-
-    //Level 0: Creator, Level1: Admins, Level2: Member, Level3: Non Member, Level4: Banned
-    enum class UserLevel : uint8_t
-    {
-        Creator = 0,
-        Admins = 1,
-        Member = 2,
-        NonMember = 3,
-        Banned = 4
-    };
 
 
     /**
@@ -681,24 +674,25 @@ namespace Sessions::SessionsCommandTemp
         /**
          * @brief 由命令上下文构造当前调用者的 User（UUID 为必填，clientID 仅作传输快照）
          */
-        static Command_Core::User BuildCallingUser(const Command_Core::ICommandContext& context)
+        static Command_Core::UserEntity BuildCallingUser(const Command_Core::ICommandContext& context)
         {
             auto info = context.GetUserByName(context.GetCallingUserName());
 
-            return Command_Core::User(
+            return Command_Core::UserEntity(
                 info.nickName.empty() ? std::string(context.GetCallingUserName()) : info.nickName,
                 info.channelID == 0 ? context.GetChannelID() : info.channelID,
                 context.GetServerHandler(),
                 info.clientID == 0 ? context.GetCallingClientID() : info.clientID,
-                info.uniqueID.empty() ? std::string(context.GetCallingUserUUID()) : info.uniqueID
+                info.uniqueID.empty() ? std::string(context.GetCallingUserUUID()) : info.uniqueID,
+                Command_Core::UserLevel::NonMember
             );
         }
 
         //鉴权
-        static UserLevel GetUserLevel(TermType command, const Command_Core::ICommandContext& context, const Sessions::SessionTemp::Session* session)
+        static Command_Core::UserLevel GetUserLevel(TermType command, const Command_Core::ICommandContext& context, const Sessions::SessionTemp::Session* session)
         {
             if(!session)
-                return UserLevel::NonMember;
+                return Command_Core::UserLevel::NonMember;
 
             const std::string_view userUUID = context.GetCallingUserUUID();
             const ID userID = context.GetCallingClientID();
@@ -707,16 +701,16 @@ namespace Sessions::SessionsCommandTemp
             // Creator 以 UUID 为准；仅有旧会话（creatorUUID 为空）时退回 clientID 比对。
             if((!userUUID.empty() && !creatorUUID.empty() && creatorUUID == userUUID) ||
                (creatorUUID.empty() && session->GetCreateID() == userID))
-                return UserLevel::Creator;
+                return Command_Core::UserLevel::Creator;
             
-            const auto adminsList = session->GetAdmins();
+            const auto adminsList = session->GetAdminEntities();
 
             if(!adminsList.empty())
             {
                 for(const auto& member : adminsList)
                 {
                     if(!userUUID.empty() && member.uuid == userUUID)
-                        return UserLevel::Admins;
+                        return Command_Core::UserLevel::Admins;
                 }
             }
 
@@ -726,23 +720,13 @@ namespace Sessions::SessionsCommandTemp
                 for(const auto& member : userList)
                 {
                     if(!userUUID.empty() && member.uuid == userUUID)
-                        return UserLevel::Member;
+                        return Command_Core::UserLevel::Member;
                 }
             }
 
-            /*
-            const auto bannedList = session->GetBanneds();
-            if(!bannedList.empty())
-            {
-                for(const auto& member : bannedList)
-                {
-                    if(member.uuid == userUUID)
-                        return UserLevel::Banned;
-                }
-            }
-            */
+
             
-            return UserLevel::NonMember;
+            return Command_Core::UserLevel::NonMember;
         }
 
         /**
@@ -791,11 +775,6 @@ namespace Sessions::SessionsCommandTemp
                 return session != nullptr && (serverUUID.empty() || session->GetServerUUID() == serverUUID);
             };
 
-            // if(WorkingSession == nullptr)
-            // {
-            //     return std::format("Sessions: 用户 {} 未选择任何Session！", context.GetCallingUserName());
-            // }
-
             //将所有Select移动至开头防止多次重复定义。
             auto Copy_Of_Terms = terms;
             std::stable_partition(Copy_Of_Terms.begin(), Copy_Of_Terms.end(), [](const auto& term)
@@ -808,11 +787,13 @@ namespace Sessions::SessionsCommandTemp
             {
                 context.Log(std::format("Sessions: 命令 {} 开始执行", static_cast<int>(term.type)), Plugin_Logs::logLevel::info, true);
 
+                //命令识别
                 const auto requiredLevelIt = TermUserLevels.find(term.type);
                 if(requiredLevelIt == TermUserLevels.end())
                     return "Sessions: 未知或未实现的命令。";
 
-                const UserLevel callerLevel = GetUserLevel(term.type, context, WorkingSession);
+                //用户鉴权
+                const Command_Core::UserLevel callerLevel = GetUserLevel(term.type, context, WorkingSession);
                 if(static_cast<uint8_t>(callerLevel) > static_cast<uint8_t>(requiredLevelIt->second))
                     return std::format("Sessions: 权限不足（当前等级 {}，需要等级 {}）。",
                                        static_cast<int>(callerLevel),
@@ -835,7 +816,7 @@ namespace Sessions::SessionsCommandTemp
                             manager->InitSession(sessionID, context, title, description);
 
                             //将创建者加入会话，避免“创建后无工作会话”的死锁。
-                            Command_Core::User creator = BuildCallingUser(context);
+                            Command_Core::UserEntity creator = BuildCallingUser(context);
 
                             manager->AddUser(sessionID, { creator }, context);
 
@@ -971,7 +952,7 @@ namespace Sessions::SessionsCommandTemp
                                         return result;
                                     }();
 
-                                context.SendResult(std::format("会话中人数：{}, 会话用户：\n{}\n", info->GetUserCount(), user_info_string), context.GetMessageTarget());
+                                context.SendResult(std::format("会话中人数：{}, 会话用户：\n{}\n", info->GetUserEntityCount(), user_info_string), context.GetMessageTarget());
                             }
                             else
                             {
@@ -1053,7 +1034,7 @@ namespace Sessions::SessionsCommandTemp
                             }
 
                             //获取并构造一个用户
-                            Command_Core::User user = BuildCallingUser(context);
+                            Command_Core::UserEntity user = BuildCallingUser(context);
 
                             //添加用户UUID到被选择Session的映射（内部会校验成员资格）
                             manager->UserSelectSession(*session_.value(), user);
@@ -1067,7 +1048,7 @@ namespace Sessions::SessionsCommandTemp
                             if(term.args.size() > 2)
                                 return "SessionsSelect: 参数过多！";
 
-                            Command_Core::User user = BuildCallingUser(context);
+                            Command_Core::UserEntity user = BuildCallingUser(context);
 
                             if(term.args.empty())
                             {
@@ -1110,7 +1091,7 @@ namespace Sessions::SessionsCommandTemp
                         break;
                     case TermType::UserJoin:
                         {
-                            std::vector<Command_Core::User> users;
+                            std::vector<Command_Core::UserEntity> users;
                             std::string result = "";
 
                             Sessions::SessionTemp::Session* workingSession = WorkingSession;
@@ -1132,7 +1113,7 @@ namespace Sessions::SessionsCommandTemp
                                     result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
-                                Command_Core::User newUser(tmp.nickName, tmp.channelID, context.GetServerHandler(), tmp.clientID, tmp.uniqueID);
+                                Command_Core::UserEntity newUser(tmp.nickName, tmp.channelID, context.GetServerHandler(), tmp.clientID, tmp.uniqueID);
 
                                 //创建逻辑用户对象
                                 users.push_back(newUser);
@@ -1150,7 +1131,7 @@ namespace Sessions::SessionsCommandTemp
                         break;
                     case TermType::UserQuit:
                         {
-                            std::vector<Command_Core::User> users;
+                            std::vector<Command_Core::UserEntity> users;
                             std::string result = "";
 
                             Sessions::SessionTemp::Session* workingSession = WorkingSession;
@@ -1172,7 +1153,7 @@ namespace Sessions::SessionsCommandTemp
                                     result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
-                                Command_Core::User newUser(tmp.nickName, tmp.channelID, context.GetServerHandler(), tmp.clientID, tmp.uniqueID);
+                                Command_Core::UserEntity newUser(tmp.nickName, tmp.channelID, context.GetServerHandler(), tmp.clientID, tmp.uniqueID);
 
                                 //创建逻辑用户对象
                                 users.push_back(newUser);
@@ -1187,10 +1168,40 @@ namespace Sessions::SessionsCommandTemp
                         break;
                     case TermType::AdminsSet: 
                         {
-                            
+                            std::string result;
+                            std::vector<Command_Core::UserEntity> Admins;
+
+                            Sessions::SessionTemp::Session* workingSession = WorkingSession;
+
+                            //args：用户名
+                            for(auto&user : term.args)
+                            {
+                                #ifdef _DEBUG
+                                    context.Log(std::format("查找用户：{}", user), Plugin_Logs::logLevel::info, false);
+                                    context.SendResult(std::format("查找用户：{}", user), context.GetMessageTarget());
+                                #endif
+
+                                auto tmp = context.GetUserByName(user);
+
+                                if(tmp.uniqueID == "")
+                                {
+                                    result += std::format("Sessions: 未查询到用户：{}！\n", user);
+                                    continue;
+                                }
+
+                                
+                            }
+
+                            workingSession->AddAdmins(Admins);
+
+                            if(!result.empty())
+                                context.SendResult(result, context.GetMessageTarget());
                         }
                         break;
                     case TermType::AdminsRemove: 
+                        {
+                            
+                        }
                         break;
                     case TermType::AdminsList: 
                         {
@@ -1509,34 +1520,34 @@ namespace Sessions::SessionsCommandTemp
         
 
 
-        static inline std::unordered_map<TermType, UserLevel> TermUserLevels =
+        static inline std::unordered_map<TermType, Command_Core::UserLevel> TermUserLevels =
         {
-            {TermType::Create, UserLevel::NonMember},
-            {TermType::End, UserLevel::Admins},
-            {TermType::Status, UserLevel::Member},
-            {TermType::Info, UserLevel::NonMember},
-            {TermType::List, UserLevel::NonMember},
-            {TermType::Search, UserLevel::NonMember},
-            {TermType::Activate, UserLevel::Admins},
-            {TermType::Rest, UserLevel::Admins},
-            {TermType::Select, UserLevel::NonMember},
-            {TermType::UnSelect, UserLevel::NonMember},
-            {TermType::UserJoin, UserLevel::Member},
-            {TermType::UserQuit, UserLevel::Admins},
-            {TermType::AdminsSet, UserLevel::Creator},
-            {TermType::AdminsRemove, UserLevel::Creator},
-            {TermType::AdminsList, UserLevel::Member},
-            {TermType::UserList, UserLevel::Member},
-            {TermType::Bind, UserLevel::Creator},
-            {TermType::History, UserLevel::Member},
-            {TermType::SaveToFile, UserLevel::Creator},
-            {TermType::CleanHistory, UserLevel::Admins},
-            {TermType::Set, UserLevel::Admins},
-            {TermType::Export, UserLevel::Admins},
-            {TermType::Import, UserLevel::Admins},
-            {TermType::Help, UserLevel::Banned},
-            {TermType::Others, UserLevel::Banned},
-            {TermType::NULLCommand, UserLevel::Banned}
+            {TermType::Create, Command_Core::UserLevel::NonMember},
+            {TermType::End, Command_Core::UserLevel::Admins},
+            {TermType::Status, Command_Core::UserLevel::Member},
+            {TermType::Info, Command_Core::UserLevel::NonMember},
+            {TermType::List, Command_Core::UserLevel::NonMember},
+            {TermType::Search, Command_Core::UserLevel::NonMember},
+            {TermType::Activate, Command_Core::UserLevel::Admins},
+            {TermType::Rest, Command_Core::UserLevel::Admins},
+            {TermType::Select, Command_Core::UserLevel::NonMember},
+            {TermType::UnSelect, Command_Core::UserLevel::NonMember},
+            {TermType::UserJoin, Command_Core::UserLevel::Member},
+            {TermType::UserQuit, Command_Core::UserLevel::Admins},
+            {TermType::AdminsSet, Command_Core::UserLevel::Creator},
+            {TermType::AdminsRemove, Command_Core::UserLevel::Creator},
+            {TermType::AdminsList, Command_Core::UserLevel::Member},
+            {TermType::UserList, Command_Core::UserLevel::Member},
+            {TermType::Bind, Command_Core::UserLevel::Creator},
+            {TermType::History, Command_Core::UserLevel::Member},
+            {TermType::SaveToFile, Command_Core::UserLevel::Creator},
+            {TermType::CleanHistory, Command_Core::UserLevel::Admins},
+            {TermType::Set, Command_Core::UserLevel::Admins},
+            {TermType::Export, Command_Core::UserLevel::Admins},
+            {TermType::Import, Command_Core::UserLevel::Admins},
+            {TermType::Help, Command_Core::UserLevel::Banned},
+            {TermType::Others, Command_Core::UserLevel::Banned},
+            {TermType::NULLCommand, Command_Core::UserLevel::Banned}
         };
 
 

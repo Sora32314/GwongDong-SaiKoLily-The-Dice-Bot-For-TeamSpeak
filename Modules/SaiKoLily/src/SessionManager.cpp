@@ -121,14 +121,29 @@ namespace Sessions::Session
             return description;
         }
 
-        const std::vector<Command_Core::User> GetUsers() const override
+        [[deprecated("使用GetUserImpl，此后SessionImpl中只存在带有权限等级的User。")]]
+        const std::vector<Command_Core::UserEntity> GetUsers() const override
         {
-            return users;
+            return user_entity;
         }
 
-        const std::vector<Command_Core::Admin> GetAdmins() const override
+        const std::vector<Command_Core::UserEntity> GetAdminEntities() const override
         {
+            std::vector<Command_Core::UserEntity> admins;
+            admins.reserve(user_entity.size());
+
+            std::copy_if(user_entity.begin(), user_entity.end(), std::back_inserter(admins),
+                [](const Command_Core::UserEntity& user)
+                {
+                    return user.PermissionLevel < Command_Core::UserLevel::Member;
+                });
+
             return admins;
+        }
+
+        const std::vector<Command_Core::UserEntity> GetUserEntity() const override
+        {
+            return user_entity;
         }
 
         const std::chrono::utc_clock::time_point GetCreateTime() const override
@@ -143,14 +158,19 @@ namespace Sessions::Session
             return std::chrono::utc_clock::time_point(std::chrono::duration_cast<std::chrono::utc_clock::duration>(diff));
         }
 
-        const size_t GetUserCount() const override
+        const size_t GetUserEntityCount() const override
         {
-            return users.size();
+            return user_entity.size();
         }
 
         const size_t GetAdminCount() const override
         {
-            return admins.size();
+            size_t count = 0;
+
+            for(auto& user : user_entity)
+                if(user.PermissionLevel < Command_Core::UserLevel::Member) count++;
+
+            return count;
         }
 
 
@@ -204,7 +224,8 @@ namespace Sessions::Session
         {
             this->description = description.data();
         }
-        virtual void AddUsers(std::vector<Command_Core::User> users) override
+
+        virtual void AddUsers(std::vector<Command_Core::UserEntity> users) override
         {
             if(users.empty())
             {
@@ -214,13 +235,13 @@ namespace Sessions::Session
             // 以 UUID 为键做 upsert：重连后同一 UUID 只刷新 clientID/昵称，不重复插入。
             for(auto& user : users)
             {
-                auto existing = std::find_if(this->users.begin(), this->users.end(),
-                    [&user](const Command_Core::User& item)
+                auto existing = std::find_if(this->user_entity.begin(), this->user_entity.end(),
+                    [&user](const Command_Core::UserEntity& item)
                     {
                         return !item.uuid.empty() && item.uuid == user.uuid;
                     });
 
-                if(existing != this->users.end())
+                if(existing != this->user_entity.end())
                 {
                     existing->name = user.name;
                     existing->channelID = user.channelID;
@@ -229,30 +250,40 @@ namespace Sessions::Session
                 }
                 else
                 {
-                    this->users.push_back(user);
+                    this->user_entity.push_back(user);
                 }
             }
         }
-        virtual void AddAdmins(std::vector<Command_Core::Admin> admins) override
+
+        virtual void AddAdmins(std::vector<Command_Core::UserEntity> admins) override
         {
+            std::vector<Command_Core::UserEntity> waiting_for_privilege_escalation;
+
             for (auto& admin : admins)
             {
-                this->admins.push_back(admin);
+                auto target = std::ranges::find_if(this->user_entity, [&admin, this](const Command_Core::UserEntity& user)
+                {
+                    return !admin.uuid.empty() && user.uuid == admin.uuid && user.uuid != this->GetCreatorUUID() && user.PermissionLevel == Command_Core::UserLevel::Member;
+                });
+                target->PermissionLevel = Command_Core::UserLevel::Admins;
             }
         }
 
-        virtual void RemoveUsers(std::vector<Command_Core::User> users) override
+        virtual void RemoveUsers(std::vector<Command_Core::UserEntity> users) override
         {
             for(auto& user : users)
             {
-                this->users.erase(std::remove_if(this->users.begin(), this->users.end(), [&user](const Command_Core::User& u) { return u.uuid == user.uuid; }), this->users.end());
+                this->user_entity.erase(std::remove_if(this->user_entity.begin(), this->user_entity.end(), [&user](const Command_Core::User& u) { return u.uuid == user.uuid; }), this->user_entity.end());
             }
         }
-        virtual void RemoveAdmins(std::vector<Command_Core::Admin> admins) override
+        virtual void RemoveAdmins(std::vector<Command_Core::UserEntity> admins) override
         {
             for (auto& admin : admins)
             {
-                this->admins.erase(std::remove_if(this->admins.begin(), this->admins.end(), [&admin](const Command_Core::Admin& a) { return a.uuid == admin.uuid; }), this->admins.end());
+                auto target = std::ranges::find_if(this->user_entity, [&admin, this](const Command_Core::UserEntity& user) {
+                    return !admin.uuid.empty() && user.uuid == admin.uuid && user.uuid != this->GetCreatorUUID() && user.PermissionLevel == Command_Core::UserLevel::Admins;
+                });
+                target->PermissionLevel = Command_Core::UserLevel::Member;
             }
         }
 
@@ -264,9 +295,9 @@ namespace Sessions::Session
 
 
         //功能函数
-        bool DistinctUsers(Command_Core::User user) override
+        bool DistinctUsers(Command_Core::UserEntity& user) override
         {
-            for(auto& user_item : users)
+            for(auto& user_item : user_entity)
             {
                 if(user.uuid == user_item.uuid)
                 {
@@ -291,8 +322,7 @@ namespace Sessions::Session
         std::string title;
         std::string description;
         std::unique_ptr<IDiceSystem> dice_system;
-        std::vector<Command_Core::User> users;
-        std::vector<Command_Core::Admin> admins;
+        std::vector<Command_Core::UserEntity> user_entity;
         std::chrono::utc_clock::time_point time_created;
     };
 
@@ -414,7 +444,9 @@ namespace Sessions::SessionManager
             session->SetServerUUID(context.GetServerUUID());
 
             //释放Dice_System指针所有权。
-            dice_system.release();
+            auto used = dice_system.release();
+
+            context.Log(std::format("DICE_SYSTEM: {}所有权已移交。管理者为：Session \"{}\"！", static_cast<const void*>(used), session->GetTitle()), Plugin_Logs::logLevel::info, true);
 
             sessions.try_emplace(session_id, std::move(session));
 
@@ -498,7 +530,7 @@ namespace Sessions::SessionManager
         {
             return true;
         }
-        bool AddUser(ID sessionID, std::vector<Command_Core::User> users, const Command_Core::ICommandContext& context) override 
+        bool AddUser(ID sessionID, std::vector<Command_Core::UserEntity> users, const Command_Core::ICommandContext& context) override 
         {
             std::lock_guard session_manager_lock(mutex);
             if(sessions.contains(sessionID))
@@ -542,7 +574,7 @@ namespace Sessions::SessionManager
             }
             return true;
         }
-        bool RemoveUser(ID sessionID, std::vector<Command_Core::User> users, const Command_Core::ICommandContext& context) override 
+        bool RemoveUser(ID sessionID, std::vector<Command_Core::UserEntity> users, const Command_Core::ICommandContext& context) override 
         {
             std::lock_guard session_manager_lock(mutex);
             if(sessions.contains(sessionID))
@@ -564,7 +596,7 @@ namespace Sessions::SessionManager
                 //无法删除空用
                 users.erase(std::remove_if(users.begin(), users.end(), [](auto& user) { return user.uuid == ""; }), users.end());
                 //删除待删除列表中的重复用户
-                std::erase_if(users, [&](const auto& user) {
+                std::erase_if(users, [&](auto& user) {
                     return sessions.at(sessionID)->DistinctUsers(user);
                 });
 
@@ -597,15 +629,15 @@ namespace Sessions::SessionManager
             }
             return true;
         }
-        bool SetAdmin(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) override 
+        bool SetAdmin(ID sessionID, std::vector<Command_Core::UserEntity> user, const Command_Core::ICommandContext& context) override 
         {
             return true;
         }
-        bool RemoveAdmin(ID sessionID, std::vector<Command_Core::User> user, const Command_Core::ICommandContext& context) override 
+        bool RemoveAdmin(ID sessionID, std::vector<Command_Core::UserEntity> user, const Command_Core::ICommandContext& context) override 
         {
             return true;
         }
-        std::vector<Command_Core::User> GetUsers(ID sessionID, const Command_Core::ICommandContext& context)  override 
+        std::vector<Command_Core::UserEntity> GetUsers(ID sessionID, const Command_Core::ICommandContext& context)  override 
         {
             std::lock_guard session_manager_lock(mutex);
 
@@ -629,11 +661,11 @@ namespace Sessions::SessionManager
 
             return {};
         }
-        std::vector<Command_Core::Admin> GetAdmins(ID sessionID, const Command_Core::ICommandContext& context) override 
+        std::vector<Command_Core::UserEntity> GetAdmins(ID sessionID, const Command_Core::ICommandContext& context) override 
         {
             if(sessions.contains(sessionID))
             {
-                return sessions.at(sessionID)->GetAdmins();
+                return sessions.at(sessionID)->GetAdminEntities();
             }
             return {};
         }
@@ -726,7 +758,7 @@ namespace Sessions::SessionManager
             return each_user_selected_sessions;
         }
 
-        void UserSelectSession(const SessionTemp::Session& session, const Command_Core::User& user) override
+        void UserSelectSession(const SessionTemp::Session& session, const Command_Core::UserEntity& user) override
         {
             if(user.uuid.empty())
             {
@@ -737,7 +769,7 @@ namespace Sessions::SessionManager
             // 必须先加入会话，才能选择它。
             const auto members = session.GetUsers();
             const bool isMember = std::any_of(members.begin(), members.end(),
-                [&user](const Command_Core::User& member)
+                [&user](const Command_Core::UserEntity& member)
                 {
                     return !member.uuid.empty() && member.uuid == user.uuid;
                 });
@@ -766,7 +798,7 @@ namespace Sessions::SessionManager
             serverSelections.try_emplace(user.uuid, session.GetID());
         }
 
-        void UserUnselectSession(const SessionTemp::Session& session, const Command_Core::User& user) override
+        void UserUnselectSession(const SessionTemp::Session& session, const Command_Core::UserEntity& user) override
         {
             const std::string serverUUID(session.GetServerUUID());
             auto serverIt = each_user_selected_sessions.find(serverUUID);

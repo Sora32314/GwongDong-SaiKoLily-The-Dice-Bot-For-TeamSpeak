@@ -193,7 +193,7 @@ namespace SaiKoLily
 
         private:
             std::shared_ptr<const DiceConfig> dice_config;
-            int64_t points;
+            int64_t points = 0;
             bool sign = true;
         };
 

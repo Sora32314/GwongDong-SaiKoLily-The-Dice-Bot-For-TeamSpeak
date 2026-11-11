@@ -243,16 +243,15 @@ namespace GwongDongFileSystem
         ~FileMetaData() = default;
 
         FileMetaData()
-        {
-            _name = "NULL";
-            _createTime = FileTime{};
-            _modifyTime = FileTime{};
-            _owner = "NULL";
-            _informationLeave = "NULL";
-            _extension = "nil";
-            _fileType = FileType::RegularFile;
-            _metadata_version = std::byte{0};
-        }
+        :   _name("NULL"),
+            _createTime(FileTime{}),
+            _modifyTime(FileTime{}),
+            _owner("NULL"),
+            _informationLeave("NULL"),
+            _extension("nil"),
+            _fileType(FileType::RegularFile),
+            _metadata_version(std::byte{0})
+        {}
 
         //UpdateMetaData：按传入参数【修改】类内MetaData，不负责返回序列化文本。
         //仅更新有值(has_value)的字段，未传入的字段保持原样；
@@ -891,12 +890,21 @@ namespace GwongDongFileSystem
 
                 auto cut = content.substr(beginPos, endPos - beginPos);
 
+                //去除字段值末尾的换行符，避免将换行解析进字段。
+                auto truncateAtNewline = [](std::string& value)
+                {
+                    if(auto pos = value.find('\n'); pos != std::string::npos)
+                    {
+                        value.erase(pos);
+                    }
+                };
+
                 [&]()
                 {
                     if(cut.find("CreateTime: ") != std::string::npos)
                     {
-                        std::string timeStr = cut.substr(cut.find("CreateTime: ") + std::string("CreateTime: ").size()).data();
-                        timeStr = timeStr.substr(0, timeStr.find("\n")).data();
+                        std::string timeStr = std::string(cut.substr(cut.find("CreateTime: ") + std::string("CreateTime: ").size()));
+                        truncateAtNewline(timeStr);
 
                         #ifdef _DEBUG
                             FSLogCallback(std::format("[GwongDongFileSystem] timeStr:{}", timeStr), Plugin_Logs::logLevel::warn, true);
@@ -918,8 +926,8 @@ namespace GwongDongFileSystem
 
                     if(cut.find("ModifyTime: ") != std::string::npos)
                     {
-                        std::string timeStr = cut.substr(cut.find("ModifyTime: ") + std::string("ModifyTime: ").size()).data();
-                        timeStr = timeStr.substr(0, timeStr.find("\n")).data();
+                        std::string timeStr = std::string(cut.substr(cut.find("ModifyTime: ") + std::string("ModifyTime: ").size()));
+                        truncateAtNewline(timeStr);
 
                         std::istringstream ss(timeStr);
                         std::chrono::system_clock::time_point parseModifyTime;
@@ -937,8 +945,8 @@ namespace GwongDongFileSystem
 
                     if(cut.find("Name: ") != std::string::npos)
                     {
-                        std::string name = cut.substr(cut.find("Name: ") + std::string("Name: ").size()).data();
-                        name = name.substr(0, name.find("\n")).data();
+                        std::string name = std::string(cut.substr(cut.find("Name: ") + std::string("Name: ").size()));
+                        truncateAtNewline(name);
                         metaData.SetName(name);
 
                         #ifdef _DEBUG
@@ -948,8 +956,8 @@ namespace GwongDongFileSystem
 
                     if(cut.find("Owner: ") != std::string::npos)
                     {
-                        std::string owner = cut.substr(cut.find("Owner: ") + std::string("Owner: ").size()).data();
-                        owner = owner.substr(0, owner.find("\n")).data();
+                        std::string owner = std::string(cut.substr(cut.find("Owner: ") + std::string("Owner: ").size()));
+                        truncateAtNewline(owner);
                         metaData.SetOwner(owner);
 
                         #ifdef _DEBUG
@@ -959,8 +967,8 @@ namespace GwongDongFileSystem
                     
                     if(cut.find("Extension: ") != std::string::npos)
                     {
-                        std::string extension = cut.substr(cut.find("Extension: ") + std::string("Extension: ").size()).data();
-                        extension = extension.substr(0, extension.find("\n")).data();
+                        std::string extension = std::string(cut.substr(cut.find("Extension: ") + std::string("Extension: ").size()));
+                        truncateAtNewline(extension);
                         metaData.SetExtension(extension);
 
                         #ifdef _DEBUG
@@ -1010,8 +1018,8 @@ namespace GwongDongFileSystem
                     
                     if(cut.find("Info: ") != std::string::npos)
                     {
-                        std::string info = cut.substr(cut.find("Info: ") + std::string("Info: ").size()).data();
-                        info = info.substr(0, info.find("\n")).data();
+                        std::string info = std::string(cut.substr(cut.find("Info: ") + std::string("Info: ").size()));
+                        truncateAtNewline(info);
                         metaData.SetInformationLeave(info);
                         
                         #ifdef _DEBUG

@@ -99,35 +99,33 @@ namespace SaiKoLily
         //     playerID = _player;
         // }
 
-        DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player, std::string_view _playerName) : rng(_rng), dice_count(_faces.size())
+        DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player, std::string_view _playerName)
+        :   faces(_faces),
+            faces_min(_faces.size(), 1),
+            dice_count(_faces.size()),
+            time_info(std::chrono::system_clock::now()),
+            playerID(_player),
+            playerName(_playerName),
+            rng(_rng)
+        {}
+
+        DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::vector<int64_t>& _faces_min, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player, std::string_view _playerName)
+        :   faces(_faces),
+            faces_min(_faces_min),
+            dice_count(_faces.size()),
+            time_info(std::chrono::system_clock::now()),
+            playerID(_player),
+            playerName(_playerName),
+            rng(_rng)
+        {}
+
+        DiceEventImpl::DiceEventImpl(std::vector<std::pair<DiceConfig, uint32_t>>& _term_configs, std::seed_seq &_seq, std::mt19937_64 &_rng, std::string_view _player, int64_t constant_offset, std::string_view _playerName)
+        :   dice_count(_term_configs.size()),
+            time_info(std::chrono::system_clock::now()),
+            playerID(_player),
+            playerName(_playerName),
+            rng(_rng)
         {
-            //初始化时间信息
-            time_info = std::chrono::system_clock::now();
-
-            faces = _faces;
-            faces_min.resize(faces.size(), 1);
-            playerID = _player;
-            playerName = _playerName;
-        }
-
-        DiceEventImpl::DiceEventImpl(std::vector<int64_t>& _faces, std::vector<int64_t>& _faces_min, std::seed_seq& _seq, std::mt19937_64& _rng, std::string_view _player, std::string_view _playerName) : rng(_rng), dice_count(_faces.size())
-        {
-            //初始化时间信息
-            time_info = std::chrono::system_clock::now();
-
-            faces_min = _faces_min;
-            faces = _faces;
-            playerID = _player;
-            playerName = _playerName;
-        }
-
-        DiceEventImpl::DiceEventImpl(std::vector<std::pair<DiceConfig, uint32_t>>& _term_configs, std::seed_seq &_seq, std::mt19937_64 &_rng, std::string_view _player, int64_t constant_offset, std::string_view _playerName) : rng(_rng), dice_count(_term_configs.size())
-        {
-            time_info = std::chrono::system_clock::now();
-
-            playerID = _player;
-            playerName = _playerName;
-
             for(auto&& term_config : _term_configs)
             {
                 config_terms.emplace_back(term_config.first, term_config.second);

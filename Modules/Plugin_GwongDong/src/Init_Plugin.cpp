@@ -84,22 +84,22 @@ namespace Plugin
         return resSet;
     }
 
-    std::string PluginInfo::get(std::string input)
+    std::string PluginInfo::get(const std::string& input)
     {
 
-        if(input.c_str() == PLUGIN_NAME)
+        if(std::strcmp(input.c_str(), PLUGIN_NAME) == 0)
         {
             return pImpl->name;
         }
-        else if(input.c_str() == PLUGIN_DESCRIPTION)
+        else if(std::strcmp(input.c_str(), PLUGIN_DESCRIPTION) == 0)
         {
             return pImpl->description;
         }
-        else if(input.c_str() == PLUGIN_AUTHOR)
+        else if(std::strcmp(input.c_str(), PLUGIN_AUTHOR) == 0)
         {
             return pImpl->author;
         }
-        else if(input.c_str() == PLUGIN_VERSION)
+        else if(std::strcmp(input.c_str(), PLUGIN_VERSION) == 0)
         {
             return pImpl->version;
         }

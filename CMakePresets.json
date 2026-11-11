@@ -25,6 +25,7 @@
                 "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/Build/Debug/lib",
                 "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/Build/Debug/lib",
 
+                "ENABLE_CPPCHECK": true,
 
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
@@ -72,6 +73,16 @@
             "configurePreset": "core debug",
             "configuration": "Debug",
             "targets":["Plugin_GwongDong", "encapsulation_spdlog", "saiko_lily", "command_core", "GwongDongFS_Bench"]
+        },
+        {
+            "name": "Cppcheck Debug",
+            "configurePreset": "core debug",
+            "targets": ["cppcheck"]
+        },
+        {
+            "name": "Cppcheck XML Debug",
+            "configurePreset": "core debug",
+            "targets": ["cppcheck-xml"]
         }
     ]
 }

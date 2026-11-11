@@ -88,7 +88,7 @@ namespace Plugin
          * @param str 字段标识（如 PLUGIN_NAME 宏的值）
          * @return 对应的元信息字符串，若未匹配则返回空字符串
          */
-        std::string get(std::string str);
+        std::string get(const std::string& str);
 
         //重命名
         using PluginInfoResSet = std::tuple<std::string,std::string,std::string,std::string>;
@@ -147,7 +147,7 @@ public:
      * @param Handler 连接句柄
      * @return 始终返回 true（当前实现）
      */
-    bool Build(const std::string UUID, const uint64 Handler)
+    bool Build(const std::string& UUID, const uint64 Handler)
     {
         std::lock_guard<std::mutex> lock(UUID_map_mutex);
 

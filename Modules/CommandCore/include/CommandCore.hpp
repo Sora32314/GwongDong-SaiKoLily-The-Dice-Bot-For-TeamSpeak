@@ -63,8 +63,8 @@ namespace Command_Core
      */
     typedef struct {
         std::string nickName;
-        anyID clientID;
-        uint64_t channelID;
+        anyID clientID = 0;
+        uint64_t channelID = 0;
         std::string uniqueID;
     } ClientInfoPackage;
 
@@ -92,13 +92,24 @@ namespace Command_Core
      */
     struct User
     {
-        User(std::string_view name = "Unknow", uint64 channelID = 0, uint64 serverID = 0, ID userID = 0, std::string uuid = "Unknow")
-        : name(name),
+        User(std::string_view name = "Unknow", uint64 channelID = 0, uint64 serverID = 0, ID userID = 0, std::string_view uuid = "Unknow")
+        :   name(name),
         channelID(channelID),
         serverID(serverID),
         userID(userID),
         uuid(uuid)
         {}
+
+        User(const User& copy)
+        :   name(copy.name),
+        channelID(copy.channelID),
+        serverID(copy.serverID),
+        userID(copy.userID),
+        uuid(copy.uuid)
+        {}
+
+        User(User&& move) = default;
+        User& operator=(const User&) = default;
 
         std::string name;
         std::optional<uint64> channelID;
@@ -108,19 +119,48 @@ namespace Command_Core
     };
     
 
+    //Level 
+
+    /**
+     * @brief 权限等级结构体
+     * 
+     * 此结构体用于描述 `Command_Core::User` 的成员权限。与UserEntity组合使用。
+     * 
+     * @note 0: Creator, Level1: Admins, Level2: Member, Level3: Non Member, Level4: Banned
+     */
+    enum class UserLevel : uint8_t
+    {
+        Creator = 0,
+        Admins = 1,
+        Member = 2,
+        NonMember = 3,
+        Banned = 4
+    };
+
+
     /**
      * @brief 管理员结构体
      * 
-     * 此结构体继承至User，额外增加了PermissionLevel字段，用于标识会话管理员权限等级，二者共享管理接口的底层容器。
+     * 此结构体继承至User，额外增加了 `PermissionLevel` 字段，字段用于标识会话用户权限等级。
+     * @em 同时也是唯一的用户实体。
      * 
-     * @warning 此结构体暂未被使用！
+     * @note 此结构体于2026-4-16 21:06被弃用，后续在2026-11-11 13:00重构。
      * 
      * @author Sora32314
-     * @date 2026-4-16 21:06
+     * @date 2026-11-11 13:00
      */
-    struct Admin : public User
+    struct UserEntity : public User
     {
-        int PermissionLevel = 0;
+        UserEntity(std::string_view name = "Unknow", uint64 channelID = 0, uint64 serverID = 0, ID userID = 0, std::string_view uuid = "Unknow", UserLevel userLevel = UserLevel::NonMember)
+        :   User(name, channelID, serverID, userID, uuid)
+        {}
+
+        UserEntity(const UserEntity& copy)
+        :   User(copy.name, copy.channelID.value_or(0), copy.serverID.value_or(0), copy.userID, copy.uuid),
+            PermissionLevel(copy.PermissionLevel)
+        {}
+
+        UserLevel PermissionLevel = UserLevel::NonMember;
     };
 
     

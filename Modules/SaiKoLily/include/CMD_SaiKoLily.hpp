@@ -70,8 +70,8 @@ namespace SaiKoLily::DiceCommand
      */
     struct ExpressionTerm
     {
-        TermType type;
-        int sign;
+        TermType type = TermType::Dice;
+        int sign = 0;
         int count = 1;
         int faces = -1;
         int faces_min = 1;
@@ -160,8 +160,6 @@ namespace SaiKoLily::DiceCommand
          */
         std::string ExecuteDiceRoll(const std::vector<ExpressionTerm>& term, SaiKoLily::DiceSystem::IDiceSystem* dice_system, std::string_view playerUUID, std::string_view playerName);
 
-        ///< 缓存的骰子系统指针，在命令执行过程中使用，避免多次从上下文获取
-        SaiKoLily::DiceSystem::IDiceSystem* dice_system_;
     };
 
     /**
