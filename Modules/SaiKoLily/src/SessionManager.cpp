@@ -225,6 +225,33 @@ namespace Sessions::Session
             this->description = description.data();
         }
 
+        virtual void AddUsers(Command_Core::UserEntity user) override
+        {
+            if(user.uuid == "")
+            {
+                return;
+            }
+
+            auto existing = std::find_if(this->user_entity.begin(), this->user_entity.end(),
+            [&user](const Command_Core::UserEntity& item)
+            {
+                return !item.uuid.empty() && item.uuid == user.uuid;
+            });
+
+            if(existing != this->user_entity.end())
+            {
+                existing->name = user.name;
+                existing->channelID = user.channelID;
+                existing->serverID = user.serverID;
+                existing->userID = user.userID;
+                existing->PermissionLevel = user.PermissionLevel;
+            }
+            else
+            {
+                this->user_entity.push_back(user);
+            }
+        }
+
         virtual void AddUsers(std::vector<Command_Core::UserEntity> users) override
         {
             if(users.empty())
@@ -247,12 +274,28 @@ namespace Sessions::Session
                     existing->channelID = user.channelID;
                     existing->serverID = user.serverID;
                     existing->userID = user.userID;
+                    existing->PermissionLevel = user.PermissionLevel;
                 }
                 else
                 {
                     this->user_entity.push_back(user);
                 }
             }
+        }
+
+        virtual void AddAdmins(Command_Core::UserEntity admin) override
+        {
+            if(admin.uuid == "")
+            {
+                return;
+            }
+
+            auto target = std::ranges::find_if(this->user_entity, [&admin, this](const Command_Core::UserEntity& user)
+            {
+                return !admin.uuid.empty() && user.uuid == admin.uuid && user.uuid != this->GetCreatorUUID() && user.PermissionLevel == Command_Core::UserLevel::Member;
+            });
+
+            target->PermissionLevel = Command_Core::UserLevel::Admins;
         }
 
         virtual void AddAdmins(std::vector<Command_Core::UserEntity> admins) override

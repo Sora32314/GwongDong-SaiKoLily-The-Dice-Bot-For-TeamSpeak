@@ -1,5 +1,6 @@
 #include <CMD_SaiKoLily.hpp>
 
+#define _DEBUG
 
 namespace SaiKoLily::DiceCommand
 {
@@ -48,11 +49,12 @@ namespace SaiKoLily::DiceCommand
                     dice_system = &temp;
                 }
                 
-                // for(const auto& res : dice_system->GetDiceEventListConst())
-                // {
-                //     cmds_logCallback(std::format("历史投掷记录：玩家:{}，点数:{}", res->GetPlayerID(), res->GetPointsInTotal()), Plugin_Logs::logLevel::info, true);
-                // }
-
+                #ifdef _DEBUG
+                    for(const auto& res : dice_system->GetDiceEventListConst())
+                    {
+                        cmds_logCallback(std::format("历史投掷记录：玩家:{}，点数:{}", res->GetPlayerID(), res->GetPointsInTotal()), Plugin_Logs::logLevel::info, true);
+                    }
+                #endif
             }
             else
             {

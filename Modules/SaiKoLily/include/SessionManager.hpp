@@ -202,7 +202,9 @@ namespace Sessions::SessionTemp
         virtual void SetSessionType(SessionsType sessionType) = 0;
         virtual void SetTitle(std::string_view title) = 0;
         virtual void SetDescription(std::string_view description) = 0;
+        virtual void AddUsers(Command_Core::UserEntity users) = 0;
         virtual void AddUsers(std::vector<Command_Core::UserEntity> users) = 0;
+        virtual void AddAdmins(Command_Core::UserEntity admins) = 0;
         virtual void AddAdmins(std::vector<Command_Core::UserEntity> admins) = 0;
         virtual void RemoveUsers(std::vector<Command_Core::UserEntity> users) = 0;
         virtual void RemoveAdmins(std::vector<Command_Core::UserEntity> admins) = 0;
@@ -777,10 +779,9 @@ namespace Sessions::SessionsCommandTemp
 
             //将所有Select移动至开头防止多次重复定义。
             auto Copy_Of_Terms = terms;
-            std::stable_partition(Copy_Of_Terms.begin(), Copy_Of_Terms.end(), [](const auto& term)
-                                                                                 { 
-                                                                                    return term.type == TermType::Select;
-                                                                                 });
+            std::stable_partition(Copy_Of_Terms.begin(), Copy_Of_Terms.end(), [](const auto& term) { 
+                return term.type == TermType::Select;
+            });
             //防止多次选择不同Session，最后一个Select会被最终执行。
 
             for(auto& term : Copy_Of_Terms)
@@ -829,6 +830,7 @@ namespace Sessions::SessionsCommandTemp
                                 return "Sessions: 创建会话失败！";
                             }
 
+                            newSession.value()->AddAdmins(creator);
                             manager->UserSelectSession(*newSession.value(), creator);
 
                             //刷新当前命令上下文中的工作会话。
@@ -1171,7 +1173,7 @@ namespace Sessions::SessionsCommandTemp
                             std::string result;
                             std::vector<Command_Core::UserEntity> Admins;
 
-                            Sessions::SessionTemp::Session* workingSession = WorkingSession;
+                            auto* workingSession = WorkingSession;
 
                             //args：用户名
                             for(auto&user : term.args)
@@ -1183,13 +1185,31 @@ namespace Sessions::SessionsCommandTemp
 
                                 auto tmp = context.GetUserByName(user);
 
-                                if(tmp.uniqueID == "")
+                                const auto sessionUsers = workingSession->GetUserEntity();
+                                auto iter = std::ranges::find_if(sessionUsers, [&tmp](const auto& userEntity){
+                                    return userEntity.uuid == tmp.uniqueID;
+                                });
+
+                                if(iter == sessionUsers.end())
                                 {
                                     result += std::format("Sessions: 未查询到用户：{}！\n", user);
                                     continue;
                                 }
 
-                                
+                                if(iter->PermissionLevel >= Command_Core::UserLevel::NonMember)
+                                {
+                                    result += std::format("Sessions: \"{}\"非会话成员，禁止添加！\n", iter->name);
+                                    continue;
+                                }
+
+                                if(iter->uuid == workingSession->GetCreatorUUID())
+                                {
+                                    result += std::format("Sessions: 会话创建者(\"{}\")，存在管理员身份！\n", iter->name);
+                                    continue;
+                                }
+
+
+                                Admins.push_back(*iter);
                             }
 
                             workingSession->AddAdmins(Admins);
@@ -1200,13 +1220,74 @@ namespace Sessions::SessionsCommandTemp
                         break;
                     case TermType::AdminsRemove: 
                         {
-                            
+                            std::string result;
+                            std::vector<Command_Core::UserEntity> removal_list;
+
+                            auto* workingSession = WorkingSession;
+                            const auto& Admins = workingSession->GetAdminEntities();
+
+                            for(auto& removal : term.args)
+                            {
+                                #ifdef _DEBUG
+                                    context.Log(std::format("查找用户：{}", removal), Plugin_Logs::logLevel::info, false);
+                                    context.SendResult(std::format("查找用户：{}", removal), context.GetMessageTarget());
+                                #endif
+
+                                auto tmp = context.GetUserByName(removal);
+
+                                auto iter = std::ranges::find_if(Admins, [&tmp](const auto& userEntity) {
+                                    return userEntity.uuid == tmp.uniqueID;
+                                });
+
+                                if(iter == Admins.end())
+                                {
+                                    result += std::format("Sessions: 未查询到用户：\"{}\"！\n", removal);
+                                    continue;
+                                }
+
+                                if(iter->PermissionLevel >= Command_Core::UserLevel::NonMember)
+                                {
+                                    result += std::format("Sessions: \"{}\"非会话成员，禁止移除！\n", iter->name);
+                                    continue;
+                                }
+
+                                if(iter->uuid == workingSession->GetCreatorUUID())
+                                {
+                                    result += std::format("Sessions: \"{}\"是会话创建者，无法移除其管理员身份！\n", iter->name);
+                                    continue;
+                                }
+
+                                removal_list.push_back(*iter);
+                            }
+
+                            workingSession->RemoveAdmins(removal_list);
+
+                            if(!result.empty())
+                                context.SendResult(result, context.GetMessageTarget());
                         }
                         break;
                     case TermType::AdminsList: 
                         {
+                            const auto* workingSession = WorkingSession;
+                            const auto& Admins = WorkingSession->GetAdminEntities();
 
-                            
+                            std::string result(std::format("此会话(\"Title: {}, Index: {}\")存在如下管理员：\n", workingSession->GetTitle(), workingSession->GetID()));
+                            std::string role;
+
+                            for(auto usr : Admins)
+                            {
+                                if(usr.PermissionLevel == Command_Core::UserLevel::Admins)
+                                {
+                                    result += std::format("[NAME:{}, UUID:{}, Role:{}]\n", usr.name, usr.uuid, "Administrator");
+                                }
+                                else if(usr.PermissionLevel == Command_Core::UserLevel::Creator)
+                                {
+                                    result += std::format("[NAME:{}, UUID:{}, Role:{}]\n", usr.name, usr.uuid, "Creator");
+                                }
+                            }
+
+                            if(!Admins.empty())
+                                context.SendResult(result, context.GetMessageTarget());
                         }
                         break;
                     case TermType::History:
