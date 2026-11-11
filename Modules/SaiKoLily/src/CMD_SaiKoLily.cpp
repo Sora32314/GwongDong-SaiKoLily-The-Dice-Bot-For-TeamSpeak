@@ -1,6 +1,6 @@
 #include <CMD_SaiKoLily.hpp>
 
-#define _DEBUG
+// _DEBUG 由 Modules/CMakeLists.txt 在 Debug 配置统一提供。
 
 namespace SaiKoLily::DiceCommand
 {

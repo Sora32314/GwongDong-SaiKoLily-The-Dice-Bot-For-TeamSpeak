@@ -645,7 +645,7 @@ namespace Sessions::SessionManager
 
                 for(auto& user : users)
                 {
-                    context.SendResult(std::format("发现用户：{}!", user.name), Command_Core::MessageTarget::CurrentChannel);
+                    context.Log(std::format("发现用户：{}!", user.name), Plugin_Logs::logLevel::info, false);
                 }
 
                 if(users.empty())
@@ -1229,9 +1229,8 @@ namespace Sessions::SessionsCommand
             if(context.GetParamCount() <= 0)
             {
                 cmds_logCallback(std::format("Sessions: 参数不足！"), Plugin_Logs::logLevel::warn, false);
-                context.SendResult("Sessions: 参数不足！", Command_Core::MessageTarget::CurrentChannel);
-                context.SendResult(std::format("用法： [!, .][session, sessions, game, Game, Session, Sessions, ss, SS] [会话命令]。如： .ss [会话命令]等。"), context.GetMessageTarget());
-                context.Log(std::format("用法： [!, .][session, sessions, game, Game, Session, Sessions, ss, SS] [会话命令]。如： .ss [会话命令]等。"), Plugin_Logs::logLevel::warn, false);
+                context.SendResult("用法：.ss <子命令> [参数]，例如 .ss create 黑水溪",
+                                   Command_Core::MessageTarget::CurrentChannel);
                 return;
             }
 
@@ -1270,11 +1269,7 @@ namespace Sessions::SessionsCommand
             try
             {
                 //解析命令
-                auto terms = Sessions::SessionsCommand::SessionsCommandImpl::ParserExpression(exprs
-                    #ifdef _Session_DEBUG
-                    , context
-                    #endif
-                );
+                auto terms = Sessions::SessionsCommand::SessionsCommandImpl::ParserExpression(exprs, context);
                 //执行命令
                 auto res = Sessions::SessionsCommand::SessionsCommandImpl::ExecuteExpression(terms, sessions_manager, context);
 

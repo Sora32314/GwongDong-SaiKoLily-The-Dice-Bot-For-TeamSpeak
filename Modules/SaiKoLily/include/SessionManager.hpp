@@ -16,7 +16,7 @@ using int64_t = long long;
 using uint64 = unsigned long long;
 
 
-#define _Session_DEBUG
+// Debug 日志统一由 _DEBUG 控制（见 Modules/CMakeLists.txt）。
 
 namespace SaiKoLily {
     namespace DiceSystem {
@@ -608,26 +608,26 @@ namespace Sessions::SessionsCommandTemp
          * @param context 命令上下文（用于调试日志）
          * @return 解析后的命令项列表
          */
-        static std::vector<ExpressionTerm> ParserExpression(std::vector<std::string_view> exprs
-            #ifdef _Session_DEBUG
-            , Command_Core::ICommandContext& context
-            #endif
-        )
+        static std::vector<ExpressionTerm> ParserExpression(std::vector<std::string_view> exprs,
+                                                             Command_Core::ICommandContext& context)
         {
             std::vector<ExpressionTerm> Terms;
-            
-            context.Log(std::format("命令解析前未出错"), Plugin_Logs::logLevel::info, true);
 
-            if(exprs.empty())
-            {
-                context.Log("Sessions: 命令为空！", Plugin_Logs::logLevel::warn, false);
-                return Terms;
-            }
+            #ifdef _DEBUG
+            context.Log("命令解析前未出错", Plugin_Logs::logLevel::info, true);
 
             for(auto& expr : exprs)
             {
-                context.SendResult(std::format("Sessions: {}", expr), Command_Core::MessageTarget::CurrentChannel);
-                context.Log(std::format("Sessions: {}", expr), Plugin_Logs::logLevel::info, false);
+                context.Log(std::format("Sessions: 参数：{}", expr), Plugin_Logs::logLevel::info, false);
+            }
+            #endif
+
+            if(exprs.empty())
+            {
+                #ifdef _DEBUG
+                context.Log("Sessions: 命令为空！", Plugin_Logs::logLevel::warn, false);
+                #endif
+                return Terms;
             }
 
             for(auto& expr : exprs)
@@ -638,37 +638,46 @@ namespace Sessions::SessionsCommandTemp
                 }
                 else if(!commands.contains(expr) && !Terms.empty())
                 {
-                    context.SendResult(std::format("添加参数:{}", expr), Command_Core::MessageTarget::CurrentChannel);
+                    #ifdef _DEBUG
+                    context.Log(std::format("添加参数：{}", expr), Plugin_Logs::logLevel::info, false);
+                    #endif
                     Terms.back().args.push_back(std::string(expr));
                 }
                 else
                 {
+                    // 未识别命令：只提示一次并终止解析，避免逐 token 刷屏。
                     context.Log(std::format("Sessions: 命令 {} 不存在！", expr), Plugin_Logs::logLevel::warn, false);
-                    context.SendResult(std::format("Sessions: 命令 {} 不存在！", expr), Command_Core::MessageTarget::CurrentChannel);
+                    context.SendResult(std::format("Sessions: 未识别的命令：{}", expr),
+                                       Command_Core::MessageTarget::CurrentChannel);
+                    return {};
                 }
             }
 
             if(Terms.empty())
             {
                 context.Log("Sessions: 命令为空！", Plugin_Logs::logLevel::warn, false);
-                context.SendResult("Sessions: 命令为空！", Command_Core::MessageTarget::CurrentChannel);
+                context.SendResult("Sessions: 缺少会话命令。",
+                                   Command_Core::MessageTarget::CurrentChannel);
+                return Terms;
             }
 
+            #ifdef _DEBUG
             for(auto& term : Terms)
             {
                 if(term.type == TermType::NULLCommand)
                 {
-                    context.Log(std::format("{} 命令为空！", static_cast<int>(term.type)), Plugin_Logs::logLevel::warn, false);
-                    context.SendResult(std::format("Sessions: 命令 {} 为空！", static_cast<int>(term.type)), Command_Core::MessageTarget::CurrentChannel);
+                    context.Log(std::format("{} 命令为空！", static_cast<int>(term.type)),
+                                Plugin_Logs::logLevel::warn, false);
                 }
                 else
                 {
-                    context.Log(std::format("Sessions: 命令 {} 已被解析！", static_cast<int>(term.type)), Plugin_Logs::logLevel::info, false);
-                    context.SendResult(std::format("Sessions: 命令 {} 已被解析！", static_cast<int>(term.type)), Command_Core::MessageTarget::CurrentChannel);
+                    context.Log(std::format("Sessions: 命令 {} 已被解析！", static_cast<int>(term.type)),
+                                Plugin_Logs::logLevel::info, false);
                 }
             }
 
-            context.Log(std::format("命令解析完毕"), Plugin_Logs::logLevel::info, true);
+            context.Log("命令解析完毕", Plugin_Logs::logLevel::info, true);
+            #endif
 
             return Terms;
         }
@@ -1107,7 +1116,6 @@ namespace Sessions::SessionsCommandTemp
                             {
                                 #ifdef _DEBUG
                                     context.Log(std::format("查找用户：{}", user), Plugin_Logs::logLevel::info, false);
-                                    context.SendResult(std::format("查找用户：{}", user), context.GetMessageTarget());
                                 #endif
                                 auto tmp = context.GetUserByName(user);
                                 if(tmp.uniqueID == "")
@@ -1121,7 +1129,6 @@ namespace Sessions::SessionsCommandTemp
                                 users.push_back(newUser);
                                 #ifdef _DEBUG
                                     context.Log(std::format("Sessions: 添加用户 {} 成功！", newUser.name), Plugin_Logs::logLevel::info, false);
-                                    context.SendResult(std::format("Sessions: 添加用户 {} 成功！", newUser.name), context.GetMessageTarget());
                                 #endif
                             }
 
@@ -1147,7 +1154,6 @@ namespace Sessions::SessionsCommandTemp
                             {
                                 #ifdef _DEBUG
                                     context.Log(std::format("查找用户：{}", user), Plugin_Logs::logLevel::info, false);
-                                    context.SendResult(std::format("查找用户：{}", user), context.GetMessageTarget());
                                 #endif
                                 auto tmp = context.GetUserByName(user);
                                 if(tmp.uniqueID == "")
@@ -1180,7 +1186,6 @@ namespace Sessions::SessionsCommandTemp
                             {
                                 #ifdef _DEBUG
                                     context.Log(std::format("查找用户：{}", user), Plugin_Logs::logLevel::info, false);
-                                    context.SendResult(std::format("查找用户：{}", user), context.GetMessageTarget());
                                 #endif
 
                                 auto tmp = context.GetUserByName(user);
@@ -1230,7 +1235,6 @@ namespace Sessions::SessionsCommandTemp
                             {
                                 #ifdef _DEBUG
                                     context.Log(std::format("查找用户：{}", removal), Plugin_Logs::logLevel::info, false);
-                                    context.SendResult(std::format("查找用户：{}", removal), context.GetMessageTarget());
                                 #endif
 
                                 auto tmp = context.GetUserByName(removal);
@@ -1292,53 +1296,51 @@ namespace Sessions::SessionsCommandTemp
                         break;
                     case TermType::History:
                         {
-                            //Arg0: 无：列出默认数量会话，Arg1：列出指定数量的会话。
+                            //Arg0: 无：列出最近 5 条，Arg1：列出最近 N 条（上限 50）。
                             const auto& List = manager->GetDiceSystem(context)->GetDiceEventListConst();
+
+                            size_t limit = 5;
+                            if(term.args.size() == 1)
+                            {
+                                try
+                                {
+                                    const int requested = std::stoi(term.args[0]);
+                                    if(requested <= 0)
+                                        return "SessionsHistory: 条数必须大于 0。";
+
+                                    //上限 50，避免一条命令刷出整屏历史。
+                                    limit = static_cast<size_t>(std::min(requested, 50));
+                                }
+                                catch(const std::exception&)
+                                {
+                                    return "SessionsHistory: 条数必须是数字。用法：.ss history [条数]";
+                                }
+                            }
+                            else if(term.args.size() > 1)
+                            {
+                                return "SessionsHistory: 参数过多。用法：.ss history [条数]";
+                            }
+
+                            const size_t total = List.size();
+                            const size_t skip = total > limit ? total - limit : 0;
+                            size_t index = 0;
+
                             std::string result;
-                            std::string time;
-
-                            context.SendResult(std::format("历史记录总数: {}", List.size()), context.GetMessageTarget());
-                            if(term.args.size() < 1)
+                            for(auto&& event : List)
                             {
-                                //默认列出20条
-                                size_t count = 20;
-                                for(auto&& event : List)
-                                {
-                                    if(count-- == 0)
-                                        break;
-                                    
-                                    //time
-                                    time.clear();
-                                    time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
+                                if(index++ < skip)
+                                    continue;
 
-                                    result += std::format("{} 在 {} 投掷出 ", ResolvePlayerName(*event), time);
-                                    result += std::format("{}\n", event->ParseExpressionStr());
-                                    result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
-                                }
-                            }
-                            else if(term.args.size() == 1)
-                            {
-                                auto count = std::stoi(term.args[0]);
-                                for(auto&& event : List)
-                                {
-                                    if(count-- == 0)
-                                        break;
-                                    
-                                    //time
-                                    time.clear();
-                                    time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
+                                const std::string time = std::format("{:%Y年%m月%d日%H时%M分%S秒}", event->GetTimeInfo());
 
-                                    result += std::format("{} 在 {} 投掷出 ", ResolvePlayerName(*event), time);
-                                    result += std::format("{}\n", event->ParseExpressionStr());
-                                    result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
-                                }
-                            }
-                            else
-                            {
-                                return "SessionsHistory: 参数过多或过少！";
+                                result += std::format("{} 在 {} 投掷出 ", ResolvePlayerName(*event), time);
+                                result += std::format("{}\n", event->ParseExpressionStr());
+                                result += std::format("备注: {}\n", event->GetThrowLog().empty() ? "NULL" : event->GetThrowLog());
                             }
 
-                            context.SendResult(std::format("Session: {} 的历史记录获取成功:\n{}", WorkingSession->GetTitle(), result), context.GetMessageTarget());
+                            const std::string title = WorkingSession ? std::string(WorkingSession->GetTitle()) : "当前会话";
+                            return std::format("Session: {} 共 {} 条，显示最近 {} 条：\n{}",
+                                               title, total, std::min(limit, total), result);
                         }
                         break;
                     case TermType::SaveToFile: 
