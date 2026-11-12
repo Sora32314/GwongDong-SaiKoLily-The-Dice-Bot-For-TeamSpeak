@@ -181,7 +181,7 @@ term       := [count] "d" faces | integer
 示例：
 
 ```text
-.ss create 黑水溪 "团本：黑水溪是本次跑团的模组"
+.ss create 黑水溪 "萌新团：黑水溪将会是本次COC跑团的模组。下一次的去纯美苹果园找，最大技能等级上限80，禁止车超人卡！"
 .ss select title 黑水溪
 .ss Join Sora32314 某人
 .ss history 10
