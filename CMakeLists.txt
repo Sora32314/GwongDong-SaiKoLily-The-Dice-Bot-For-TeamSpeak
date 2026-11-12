@@ -11,6 +11,14 @@ set(exlib_loggings_dir ${CMAKE_SOURCE_DIR}/ExternModules/spdlog-1.15.3/)
 project(TSRobot-GwongDong VERSION 0.0.1 LANGUAGES CXX)
 
 
+if(UNIX)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    #防止去除GLIBCXX依赖
+    add_link_options(-static-libstdc++)
+    add_link_options(-static-libgcc)
+endif()
+
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(Cppcheck)

@@ -9,7 +9,7 @@
         {
             "name": "core debug",
             "displayName": "Debug Build",
-            "description": "Build Core Target With Debug Info",
+            "description": "Build Core Target With Debug Info.",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/Build/Debug",
             "cacheVariables": {
@@ -20,20 +20,17 @@
                 "CMAKE_CXX_STANDARD": "23",
                 "CMAKE_CXX_EXTENSIONS": "OFF",
                 "CMAKE_CXX_STANDARD_REQUIRED": "ON",
-                
                 "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/Build/Debug/bin",
                 "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/Build/Debug/lib",
                 "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/Build/Debug/lib",
-
                 "ENABLE_CPPCHECK": true,
-
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         },
         {
             "name": "core release",
             "displayName": "Release Build",
-            "description": "Build Core Target In Release",
+            "description": "Build Core Target In Release.",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/Build/Release",
             "cacheVariables": {
@@ -44,13 +41,37 @@
                 "CMAKE_CXX_STANDARD": "23",
                 "CMAKE_CXX_EXTENSIONS": "OFF",
                 "CMAKE_CXX_STANDARD_REQUIRED": "ON",
-                
-
                 "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/Build/Release/bin",
                 "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/Build/Release/lib",
                 "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/Build/Release/lib",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "linux_x86_64 release",
+            "displayName": "Linux Release Build",
+            "description": "Build Core Target In Linux x86_64 Platform Release.",
+            "generator": "Ninja",
+            "binaryDir": "$env{HOME}/project/GwongDong_SaiKoLily/Linux-Release/",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "g++",
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "23",
+                "CMAKE_CXX_EXTENSIONS": "OFF",
+                "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
 
+                "ENABLE_CPPCHECK": false,
+                "GD_BUILD_TESTSPACE": true,
 
+                "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "$env{HOME}/project/GwongDong_SaiKoLily/Linux-Release/lib",
+                "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "$env{HOME}/project/GwongDong_SaiKoLily/Linux-Release/lib",
+                "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "$env{HOME}/project/GwongDong_SaiKoLily/Linux-Release/bin",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         }
@@ -60,29 +81,60 @@
             "name": "Debug Build",
             "configurePreset": "core debug",
             "configuration": "Debug",
-            "targets":["Plugin_GwongDong", "encapsulation_spdlog", "saiko_lily", "command_core"]
+            "targets": [
+                "Plugin_GwongDong",
+                "encapsulation_spdlog",
+                "saiko_lily",
+                "command_core"
+            ]
         },
         {
             "name": "Release Build",
             "configurePreset": "core release",
             "configuration": "Release",
-            "targets":["Plugin_GwongDong", "encapsulation_spdlog", "saiko_lily", "command_core"]
+            "targets": [
+                "Plugin_GwongDong",
+                "encapsulation_spdlog",
+                "saiko_lily",
+                "command_core"
+            ]
         },
         {
             "name": "Test Build",
             "configurePreset": "core debug",
             "configuration": "Debug",
-            "targets":["Plugin_GwongDong", "encapsulation_spdlog", "saiko_lily", "command_core", "GwongDongFS_Bench"]
+            "targets": [
+                "Plugin_GwongDong",
+                "encapsulation_spdlog",
+                "saiko_lily",
+                "command_core",
+                "GwongDongFS_Bench"
+            ]
+        },
+        {
+            "name": "Linux Build",
+            "configurePreset": "linux_x86_64 release",
+            "configuration": "Release",
+            "targets": [
+                "Plugin_GwongDong",
+                "encapsulation_spdlog",
+                "saiko_lily",
+                "command_core"
+            ]
         },
         {
             "name": "Cppcheck Debug",
             "configurePreset": "core debug",
-            "targets": ["cppcheck"]
+            "targets": [
+                "cppcheck"
+            ]
         },
         {
             "name": "Cppcheck XML Debug",
             "configurePreset": "core debug",
-            "targets": ["cppcheck-xml"]
+            "targets": [
+                "cppcheck-xml"
+            ]
         }
     ]
 }

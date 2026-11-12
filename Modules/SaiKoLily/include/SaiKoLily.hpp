@@ -9,12 +9,14 @@
 #include <vector>
 #include <string>
 #include <random>
+#include <cstdint>
+
 #include <loggings.hpp>
 #include <CommandCore.hpp>
 #include <SaiKoLilyInterface.hpp>
 
 
-using uint64 = unsigned long long;
+using uint64 = std::uint64_t;
 using TimePoint = std::chrono::system_clock::time_point;
 
 

@@ -6,14 +6,16 @@
 #include <algorithm>
 #include <charconv>
 #include <functional>
+#include <cstdint>
+
 #include <loggings.hpp>
 #include <shared_mutex>
 #include <CommandCore.hpp>
 #include <GwongDongFileSystem.hpp>
 #include <SaiKoLilyInterface.hpp>
 
-using int64_t = long long;
-using uint64 = unsigned long long;
+using int64_t = std::int64_t;
+using uint64 = std::uint64_t;
 
 
 // Debug 日志统一由 _DEBUG 控制（见 Modules/CMakeLists.txt）。

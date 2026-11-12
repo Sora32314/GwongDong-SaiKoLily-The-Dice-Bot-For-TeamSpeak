@@ -6,11 +6,13 @@
 #include <optional>
 #include <functional>
 #include <string_view>
+#include <cstdint>
+
 #include <loggings.hpp>
 
 
-using uint64 = unsigned long long;
-using ID = uint64_t;
+using uint64 = std::uint64_t;
+using ID = std::uint64_t;
 
 
 /**
