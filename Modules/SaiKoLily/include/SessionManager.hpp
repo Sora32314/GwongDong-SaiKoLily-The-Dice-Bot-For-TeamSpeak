@@ -632,6 +632,13 @@ namespace Sessions::SessionsCommandTemp
 
             for(auto& expr : exprs)
             {
+                // help 后的第一个 token 作为帮助主题，即使它本身是已注册的子命令。
+                if(!Terms.empty() && Terms.back().type == TermType::Help && Terms.back().args.empty())
+                {
+                    Terms.back().args.push_back(std::string(expr));
+                    continue;
+                }
+
                 if(commands.contains(expr))
                 {
                     Terms.emplace_back(commands[expr], std::vector<ExpressionTerm::Args>{});
@@ -1410,6 +1417,15 @@ namespace Sessions::SessionsCommandTemp
                         }
                         break;
 
+                    case TermType::Help:
+                        {
+                            const std::string_view topic = term.args.empty()
+                                ? std::string_view{}
+                                : std::string_view(term.args.front());
+                            context.SendResult(GetHelpText(topic), context.GetMessageTarget());
+                        }
+                        break;
+
                     default: 
                         break;
                 }
@@ -1417,6 +1433,12 @@ namespace Sessions::SessionsCommandTemp
 
             ///返回执行的错误到 @see void SessionsCommand::Execute(Command_Core::ICommandContext& context) ，此处如果为空，则表示命令执行成功，且不返回任何结果。
             return "";
+        }
+
+    public:
+        static std::string GetHelpText(std::string_view topic)
+        {
+            return BuildHelpText(topic);
         }
 
     private:
@@ -1632,6 +1654,154 @@ namespace Sessions::SessionsCommandTemp
             {TermType::Others, Command_Core::UserLevel::Banned},
             {TermType::NULLCommand, Command_Core::UserLevel::Banned}
         };
+
+
+        struct HelpEntry
+        {
+            TermType type;
+            std::string_view name;
+            std::string_view syntax;
+            std::string_view permission;
+            std::string_view description;
+            std::string_view example;
+            bool implemented = true;
+        };
+
+        static inline const std::vector<HelpEntry> HelpEntries =
+        {
+            {TermType::Create, "create", ".ss create <title> [description]", "任意用户", "创建会话；创建者自动成为管理员并选中该会话", ".ss create 黑水溪 \"团本：黑水溪是本次跑团的模组\"", true},
+            {TermType::End, "end", ".ss end [<method> <value>]", "管理员", "结束当前选中的会话或指定会话", ".ss end title 黑水溪", true},
+            {TermType::Status, "status", ".ss status", "成员", "占位实现：仅写入日志，返回内容为空", ".ss status", false},
+            {TermType::Info, "info", ".ss info", "任意用户", "查看当前会话信息", ".ss info", true},
+            {TermType::List, "list", ".ss list", "任意用户", "列出活跃会话", ".ss list", true},
+            {TermType::Search, "search", ".ss search <method> <value>", "任意用户", "按 ID、标题或创建者搜索会话", ".ss search title 黑水溪", true},
+            {TermType::Activate, "activate", ".ss activate", "管理员", "占位实现，调用后无实际效果", ".ss activate", false},
+            {TermType::Rest, "rest", ".ss rest", "管理员", "占位实现，调用后无实际效果", ".ss rest", false},
+            {TermType::Select, "select", ".ss select <method> <value>", "任意用户（须为成员）", "选定当前会话", ".ss select title 黑水溪", true},
+            {TermType::UnSelect, "unselect", ".ss unselect [<method> <value>]", "任意用户", "取消当前选择或指定选择", ".ss unselect", true},
+            {TermType::UserJoin, "Join", ".ss Join <user> [user...]", "成员", "将一个或多个用户加入当前会话", ".ss Join Sora32314 某人", true},
+            {TermType::UserQuit, "Quit", ".ss Quit <user> [user...]", "管理员", "将一个或多个用户移出当前会话", ".ss Quit 某人", true},
+            {TermType::AdminsSet, "adminset", ".ss adminset <user> [user...]", "创建者", "添加管理员；目标必须是会话成员", ".ss adminset 某人", true},
+            {TermType::AdminsRemove, "adminsremove", ".ss adminsremove <user> [user...]", "创建者", "移除管理员；目标必须是管理员", ".ss adminsremove 某人", true},
+            {TermType::AdminsList, "adminslist", ".ss adminslist", "成员", "查看当前会话管理员", ".ss adminslist", true},
+            {TermType::UserList, "userlist", ".ss userlist", "成员", "已注册，尚未实现", ".ss userlist", false},
+            {TermType::Bind, "bind", ".ss bind", "创建者", "已注册，尚未实现", ".ss bind", false},
+            {TermType::History, "history", ".ss history [N]", "成员", "查看当前会话最近 N 条投掷记录，默认 5 条，最多 50 条", ".ss history 10", true},
+            {TermType::SaveToFile, "STF", ".ss STF [directory] [filename] [extension]", "创建者", "导出当前会话的全部投掷记录", ".ss STF ./logs 跑团记录 txt", true},
+            {TermType::CleanHistory, "cleanhistory", ".ss cleanhistory", "管理员", "已注册，尚未实现", ".ss cleanhistory", false},
+            {TermType::Set, "set", ".ss set", "管理员", "已注册，尚未实现", ".ss set", false},
+            {TermType::Export, "export", ".ss export", "管理员", "已注册，尚未实现", ".ss export", false},
+            {TermType::Import, "import", ".ss import", "管理员", "已注册，尚未实现", ".ss import", false},
+            {TermType::Help, "help", ".ss help [subcommand]", "所有用户", "显示会话命令帮助或跑团快速开始", ".ss help start", true}
+        };
+
+        static std::string BuildAliasList(TermType type)
+        {
+            std::vector<std::string_view> aliases;
+            for(const auto& [alias, commandType] : commands)
+            {
+                if(commandType == type)
+                    aliases.push_back(alias);
+            }
+
+            std::sort(aliases.begin(), aliases.end());
+
+            std::string result;
+            for(const auto& alias : aliases)
+            {
+                if(!result.empty())
+                    result += "、";
+                result += alias;
+            }
+            return result;
+        }
+
+        static std::string BuildHelpList()
+        {
+            return
+                "会话命令帮助\n"
+                "【重要】随机数引擎需要在加入会话后使用。未加入会话时单独掷骰会使用临时引擎，结果可能出现较大偏差，仅适合演示。\n"
+                "用法：.ss <子命令> [参数...]\n"
+                "快速开始：\n"
+                "  1. 创建会话：.ss create 黑水溪\n"
+                "  2. 加入玩家：.ss Join 玩家A\n"
+                "  3. 开始掷骰：!r 2d6+1d4-3\n"
+                "  完整示例：.ss help start\n"
+                "已实现：\n"
+                "  create 建会话 | end 结束 | select 选择 | unselect 取消选择\n"
+                "  Join 加人 | Quit 移除 | info 信息 | list 列表 | search 搜索\n"
+                "  history 历史 | STF 导出 | adminset 加管理员 | adminsremove 移除管理员 | adminslist 管理员列表 | help 帮助\n"
+                "占位/未实现：status、activate、rest、userlist、bind、cleanhistory、set、export、import\n"
+                "查找方式：id/index/i、title/t、creator\n"
+                "详细说明：.ss help <子命令> 或 .ss help start";
+        }
+
+        static std::string BuildQuickStartText()
+        {
+            return
+                "如何开始跑团\n"
+                "【重要】随机数引擎需要在加入会话后使用。未加入会话时单独掷骰会使用临时引擎，结果可能出现较大偏差，仅适合演示。\n"
+                "\n"
+                "1. 创建会话\n"
+                "   .ss create 黑水溪 \"团本：黑水溪是本次跑团的模组\"\n"
+                "   创建者会自动加入并选中该会话。\n"
+                "\n"
+                "2. 加入玩家\n"
+                "   .ss Join 玩家A 玩家B\n"
+                "   昵称需与当前服务器显示名完全一致。\n"
+                "\n"
+                "3. 开始掷骰\n"
+                "   !r 2d6+1d4-3\n"
+                "   掷骰会写入当前会话历史。\n"
+                "\n"
+                "4. 查看与导出\n"
+                "   .ss history 10\n"
+                "   .ss STF ./logs 跑团记录 txt\n"
+                "\n"
+                "5. 结束会话\n"
+                "   .ss end\n"
+                "   需要管理员权限。\n"
+                "\n"
+                "如果已有多个会话，先执行 .ss select title <标题> 选定目标会话。\n"
+                "更多命令：.ss help；单个命令：.ss help <子命令>。";
+        }
+
+        static std::string BuildHelpText(std::string_view topic)
+        {
+            if(topic.empty())
+                return BuildHelpList();
+
+            if(topic == "start" || topic == "quickstart" || topic == "快速开始"
+                || topic == "跑团" || topic == "如何开始")
+                return BuildQuickStartText();
+
+            const auto commandIt = commands.find(topic);
+            if(commandIt == commands.end())
+                return std::format("未找到子命令：{}\n使用 .ss help 查看可用子命令。", topic);
+
+            const TermType type = commandIt->second;
+            const auto entryIt = std::ranges::find_if(HelpEntries, [type](const HelpEntry& entry) {
+                return entry.type == type;
+            });
+
+            if(entryIt == HelpEntries.end())
+                return std::format("子命令 {} 暂无帮助信息。", topic);
+
+            std::string text = std::format("[{}]\n语法：{}\n权限：{}\n说明：{}",
+                                           entryIt->name, entryIt->syntax, entryIt->permission, entryIt->description);
+
+            const std::string aliases = BuildAliasList(entryIt->type);
+            if(!aliases.empty())
+                text += std::format("\n别名：{}", aliases);
+
+            if(!entryIt->example.empty())
+                text += std::format("\n示例：{}", entryIt->example);
+
+            if(!entryIt->implemented)
+                text += "\n状态：尚未实现";
+
+            return text;
+        }
 
 
         /**

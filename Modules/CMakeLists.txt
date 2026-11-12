@@ -6,7 +6,12 @@ add_compile_definitions("$<$<CONFIG:Debug>:_DEBUG>")
 
 add_subdirectory(CommandCore)
 add_subdirectory(GwongDongFileSystems)
-add_subdirectory(TS3FuncWrapper)
+
+# 本地可选模块：目录存在时才加入。
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/TS3FuncWrapper")
+    add_subdirectory(TS3FuncWrapper)
+endif()
+
 add_subdirectory(Loggings)
 add_subdirectory(SaiKoLily)
 add_subdirectory(Plugin_GwongDong)

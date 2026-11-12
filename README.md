@@ -1,230 +1,257 @@
-# GwongDong-SaiKoLily（骰娘小广东）
+# 骰娘小广东 / GwongDong SaiKoLily
 
-运行在 TeamSpeak 3 客户端内的掷骰 Bot，面向 TRPG 玩家。可以在语音频道里输入骰子表达式即时掷骰，通过「会话」管理跑团成员、记录每一次投掷，并把历史导出为文本文件。
+GwongDong SaiKoLily（骰娘小广东）是运行于 TeamSpeak 3 客户端的 TRPG 掷骰插件。用户可在频道聊天框输入骰子表达式进行投掷，并通过会话记录成员与投掷历史；会话记录可导出为文本文件。
 
-[![version](https://img.shields.io/badge/version-v0.0.3--insider-blue)](https://github.com/Sora32314/GwongDong-SaiKoLily)
-[![C++](https://img.shields.io/badge/C%2B%2B-23-%23f34b7d)](https://en.cppreference.com/w/cpp/23)
-[![TeamSpeak](https://img.shields.io/badge/TeamSpeak%203%20Plugin%20API-v26-orange)](https://www.teamspeak.com/)
-[![toolchain](https://img.shields.io/badge/toolchain-MinGW--w64%20GCC%2014%2B-brightgreen)](https://www.mingw-w64.org/)
-[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+当前插件内部版本为 `0.0.3`（内测）。一期功能已完成，公开测试 v0.4 待测试日结束后发布。
 
----
+## 功能概览
 
-## 目录
+- 掷骰：支持 `XdY` 形式的加减表达式与常数项，例如 `2d6+1d4-3`、`d20+5`。
+- 会话：支持创建、选择、结束会话，以及加入、移除成员和设置管理员。
+- 历史：可查看当前会话的最近投掷记录。
+- 导出：可将当前会话的投掷记录导出为文本文件。
+- 帮助：`.ss help` 可查看会话子命令的语法、权限和示例；`.ss help start` 查看跑团快速开始。
+- 身份：成员身份优先按 TeamSpeak 3 UUID 记录，重连或改名不会丢失。
 
-- [GwongDong-SaiKoLily（骰娘小广东）](#gwongdong-saikolily骰娘小广东)
-  - [目录](#目录)
-  - [简介](#简介)
-  - [功能一览](#功能一览)
-  - [ 📦 环境要求与构建](#--环境要求与构建)
-    - [环境要求](#环境要求)
-    - [使用 CMake Presets 构建](#使用-cmake-presets-构建)
-    - [使用 MinGW-w64 GCC 构建](#使用-mingw-w64-gcc-构建)
-  - [ 🚀 安装到 TeamSpeak 3](#--安装到-teamspeak-3)
-  - [ ⌨️ 命令参考](#-️-命令参考)
-    - [通用规则](#通用规则)
-    - [ 🎲 掷骰命令](#--掷骰命令)
-    - [ 🗂️ 会话命令](#-️-会话命令)
-    - [ 📜 历史记录与导出](#--历史记录与导出)
-  - [ ⚙️ 配置与日志](#-️-配置与日志)
-  - [ 🏗️ 项目结构](#-️-项目结构)
-  - [许可证](#许可证)
-    - [The Project Made With ❤~](#the-project-made-with-)
-    - [作者：Sora32314](#作者sora32314)
-
----
-
-## 简介
-
-插件以「会话（Session）」为单位组织跑团活动。一个会话代表一次跑团，包含标题、描述、成员列表以及独立的一份投掷历史：
-
-- 会话外的临时掷骰只做演示，结果不会保留；
-- 创建或加入会话后，掷骰会进入该会话的历史，供查询与导出。
-
-## 功能一览
-
-- **掷骰**：解析 `XdY` 形式的多项加减表达式（如 `2d6+1d4-3`）并返回每个骰子的出目与总点数。
-- **会话管理**：创建 / 选择 / 结束会话，向会话中加入或移除成员。
-- **历史记录**：按时间倒序查看最近若干次投掷。
-- **历史导出**：把会话内全部投掷记录写入文本文件。
-
-## <a id="build"></a> 📦 环境要求与构建
+## 构建
 
 ### 环境要求
 
-| 依赖 | 说明 |
-| --- | --- |
-| 操作系统 | Windows |
-| TeamSpeak 3 客户端 | 支持 Plugin API v26 |
-| 编译器 | MinGW-w64 GCC 14+ |
-| C++ 标准 | C++23 |
-| CMake | ≥ 4.0.1 |
-| Ninja | 构建生成器 |
-| spdlog | 1.15.3，仓库内 `ExternModules/spdlog-1.15.3`，无需单独安装 |
+- Windows
+- CMake 4.0.1 或更高版本
+- Ninja
+- MinGW-w64 GCC 14 或更高版本（开发环境使用 GCC 16.1 验证）
+- C++23
 
-### 使用 CMake Presets 构建
+spdlog 1.15.3 与 TeamSpeak 3 插件 SDK v26 已包含在 `ExternModules/` 中，无需额外安装。
 
-仓库提供了 [`CMakePresets.json`](CMakePresets.json:1)，预设中为开发便利将编译器写死为 MSVC `cl.exe`。若你的 `PATH` 中没有 MSVC 环境（`vcvars64.bat`），请改用下面的 MinGW 手动配置方式。
+### 构建命令
 
-```bash
+```powershell
 # Debug
 cmake --preset "core debug"
 cmake --build --preset "Debug Build"
+
+# Release
+cmake --preset "core release"
+cmake --build --preset "Release Build"
 ```
 
-### 使用 MinGW-w64 GCC 构建
+产物位于 `Build/Debug/bin` 或 `Build/Release/bin`。MinGW 生成的 DLL 为 `libPlugin_GwongDong.dll`，MSVC 生成 `Plugin_GwongDong.dll`。MinGW 采用静态运行时链接，部署时只需复制 DLL。
 
-```bash
-# 配置（Release 示例，需覆盖预设中默认的 MSVC 编译器）
-cmake -S . -B Build/Release -G Ninja ^
-  -DCMAKE_BUILD_TYPE=Release ^
-  -DCMAKE_C_COMPILER=gcc ^
+手动指定编译器：
+
+```powershell
+cmake -S . -B Build/Release -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_CXX_COMPILER=g++
-
-# 编译插件
 cmake --build Build/Release --target Plugin_GwongDong
 ```
 
-编译产物（`.dll`）输出到 `Build/Release/bin`（Debug 对应 `Build/Debug/bin`）。
+## 安装到 TeamSpeak 3
 
-## <a id="install"></a> 🚀 安装到 TeamSpeak 3
+1. 将 `libPlugin_GwongDong.dll`（MSVC 构建为 `Plugin_GwongDong.dll`）复制到 TeamSpeak 3 客户端插件目录。Windows 默认路径通常为 `%APPDATA%\TS3Client\plugins`。
+2. 重启客户端，在「工具 → 选项 → 插件」中确认插件已加载。
+3. 进入频道后，在聊天框输入命令。
 
-1. 把编译出的 `Plugin_GwongDong.dll`（其依赖的静态库已链入，无需额外文件）复制到 TeamSpeak 3 客户端的插件目录。
-2. 启动 TeamSpeak 3 客户端，在「工具 → 选项 → 插件」中确认插件已加载。
-3. 插件加载时会尝试通过 `guiConnect` 连接到本地 `localhost` 服务器（连接信息硬编码于 [`Init_Plugin.cpp`](Modules/Plugin_GwongDong/src/Init_Plugin.cpp:350)，可按需修改后重新编译）。
-4. 进入某个频道后即可在聊天框输入命令。插件会自动订阅频道、缓存成员列表，用于把投掷结果对应到具体玩家。
+插件启动时会通过 `guiConnect` 连接 `localhost`，因此本机需运行一个 TeamSpeak 3 服务器。连接使用的 Identity 固定写在 `Modules/Plugin_GwongDong/src/Init_Plugin.cpp` 的 `ts3plugin_init()` 中；如需连接其他服务器，应修改配置并重新编译。
 
-## <a id="commands"></a> ⌨️ 命令参考
+插件会忽略自身发送的消息；不以命令前缀开头的普通聊天不会触发命令处理。
+
+## 快速开始
+
+1. 创建会话：`.ss create 黑水溪 "团本：黑水溪是本次跑团的模组"`
+2. 加入玩家：`.ss Join 玩家A 玩家B`
+3. 开始掷骰：`!r 2d6+1d4-3`
+4. 查看与导出：`.ss history 10`、`.ss STF ./logs 跑团记录 txt`
+
+> **重要**：随机数引擎需要在加入会话后使用。未加入会话时单独掷骰会使用临时引擎，结果可能出现较大偏差，仅适合演示。
+
+在聊天框执行 `.ss help start` 可以查看完整示例。
+
+## 命令说明
 
 ### 通用规则
 
-- 所有命令以 `!`、`.`、`>` 之一开头，后接命令名与参数。
-- 命令与别名注册表同时收录了大小写变体，匹配按精确字符串进行；顶层命令支持别名（见各小节）。
-- 含空格的参数请用 `"` 或 `'` 包裹。
-- 只有以命令前缀开头的内容才会被当作命令处理，普通聊天不会触发。
+- 命令前缀为 `!`、`.` 或 `>`，前缀后紧跟命令名。
+- 参数按空白字符拆分；包含空格时需使用单引号或双引号包裹。
+- 命令名与别名按精确字符串匹配，区分大小写。
+- `.ss` 支持在一条消息中串联多个子命令；`select` 会优先执行。
+- 当前会话按“用户选择 → 已加入 → 频道绑定”的顺序确定。
+- `info` 在未选中会话时会回退到以当前用户为创建者的会话；其他依赖工作会话的命令会失败。
+- 用户参数按当前服务器在线昵称精确匹配，不支持离线查询。
+- 会话查找方式：`id` / `index` / `i`、`title` / `t`、`creator`。
 
-### <a id="roll"></a> 🎲 掷骰命令
+权限等级：
 
-| 命令 | 别名 | 示例 |
+| 等级 | 说明 |
+| --- | --- |
+| `Creator` | 会话创建者 |
+| `Admins` | 会话管理员 |
+| `Member` | 会话成员 |
+| `NonMember` | 非会话成员 |
+| `Banned` | 预留等级 |
+
+当前没有工作会话时，用户等级按 `NonMember` 处理；需要 `Member`、`Admins` 或 `Creator` 权限的命令会返回权限不足。
+
+### 掷骰
+
+```text
+<前缀><roll|r|rd|dice|throw> <expression>
+```
+
+`expression` 为必填参数，必须作为单个参数传入；包含空格时需加引号。命令只读取第一个参数，后续参数会被忽略。
+
+| 参数 | 必需 | 说明 |
 | --- | --- | --- |
-| `roll` | `r`、`rd`、`dice`、`throw` | `!r 2d6+1d4-3`、`.rd 1d20+5`、`>throw 3d10` |
+| `expression` | 是 | 骰子表达式 |
 
-**表达式语法**
+表达式语法：
 
-- `XdY`：投掷 X 个 Y 面骰，例如 `2d6`；省略数量时默认掷 1 个（`d6` 等价于 `1d6`）。
-- 支持 `+` / `-` 拼接多个骰子项：`2d6+1d4-3`。
-- 支持纯常数项：`3` 直接返回 3，也可与骰子混合，如 `1d20+5-1d4`。
-- 表达式内空格会被忽略。
-
-**输出示例**
-
-输入：
-
+```text
+expression := [sign] term { ("+" | "-") term }
+term       := [count] "d" faces | integer
 ```
+
+- `count`：骰子数量，省略时为 1，例如 `d6` 等价于 `1d6`。
+- `faces`：骰子面数。
+- `integer`：常数项，可与骰子项混合。
+- 表达式内部允许空格；空格会在解析时忽略。
+
+示例：
+
+```text
+!r 1d20
 !r 2d6+1d4-3
+!r 1d20+5-1d4
+!r "2d6 + 1d4 - 3"
 ```
 
-频道内输出：
+输出：
 
-```
+```text
 投掷结果：2d6[3, 5]+1d4[2]-3
 点数：7
 ```
 
-> `[3, 5]` 是 2 个 d6 各自掷出的出目；`点数` 为全部出目与常数项之和。
+> **重要**：随机数引擎需要在加入会话后使用。未加入会话时单独掷骰会使用临时引擎，结果可能出现较大偏差，仅适合演示。
 
-### <a id="sessions"></a> 🗂️ 会话命令
+任意用户均可执行。存在当前工作会话时，投掷记录会写入该会话历史；否则使用临时骰子系统，不写入历史。首个表达式项不显示前导符号，建议以正数项开头。
 
-会话命令为 `ss`（也可写作 `sessions`、`session`、`game`），格式：
+### 会话
 
+```text
+<前缀><ss|session|sessions|game> <子命令> [参数...]
 ```
-.ss <子命令> [参数…]
-```
 
-子命令支持中英文别名，下表列出主要别名。多数操作作用于你的「当前会话」（见下方「会话命中优先级」），建议操作前先用 `.ss select` 选定目标会话。
-
-**已实现**
-
-| 子命令 | 别名 | 说明 | 示例 |
+| 子命令 | 语法 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| `create` | `new`、`创建` | 创建会话；第 1 个参数为标题，第 2 个可选为描述 | `.ss create 黑水溪 团本：<黑水溪>是本次跑团的团本，是一个非常经典的模组。` |
-| `end` | `stop`、`结束` | 结束会话。无参数时结束当前选中的会话；也可带 `<查找方式> <参数>` | `.ss end`、`.ss end title 黑水溪` |
-| `select` | `选择` | 把指定会话设为当前选中会话 | `.ss select id 1`、`.ss select title 黑水溪` |
-| `unselect` | `取消选择` | 取消当前选中的会话 | `.ss unselect` |
-| `join` | `add`、`添加用户` | 把一个或多个用户加入当前会话 | `.ss join SenSei❤ 旱獭优香` |
-| `quit` | `delete`、`删除用户` | 把一个或多个用户移出当前会话 | `.ss quit 生盐诺亚` |
-| `info` | `信息` | 查看当前会话详情（ID、标题、描述、类型、创建者、成员） | `.ss info` |
-| `list` | `ls`、`会话列表` | 列出当前所有活跃会话 | `.ss list` |
-| `search` | `查询` | 按 `<查找方式> <参数>` 搜索会话 | `.ss search title 黑水溪` |
-| `history` | `历史` | 查看当前会话最近 N 次投掷（默认 20 条） | `.ss history 10` |
-| `STF` | `save`、`保存` | 把当前会话全部投掷历史导出为文件；参数依次为路径、文件名、扩展名（均可省略） | `.ss STF ./logs 跑团记录 txt` |
+| `create` | `.ss create <title> [description]` | 任意用户 | 创建会话 |
+| `select` | `.ss select <method> <value>` | 须为成员 | 选定当前会话 |
+| `unselect` | `.ss unselect [<method> <value>]` | 任意用户 | 取消选择 |
+| `end` | `.ss end [<method> <value>]` | 管理员 | 结束会话 |
+| `Join` | `.ss Join <user> [user...]` | 成员 | 加入成员 |
+| `Quit` | `.ss Quit <user> [user...]` | 管理员 | 移除成员 |
+| `info` | `.ss info` | 任意用户 | 查看会话信息 |
+| `list` | `.ss list` | 任意用户 | 列出会话 |
+| `search` | `.ss search <method> <value>` | 任意用户 | 搜索会话 |
+| `history` | `.ss history [N]` | 成员 | 查看投掷历史，默认 5 条，最多 50 条 |
+| `STF` | `.ss STF [directory] [filename] [extension]` | 创建者 | 导出投掷记录 |
+| `adminset` | `.ss adminset <user> [user...]` | 创建者 | 添加管理员 |
+| `adminsremove` | `.ss adminsremove <user> [user...]` | 创建者 | 移除管理员 |
+| `adminslist` | `.ss adminslist` | 成员 | 查看管理员列表 |
+| `help` | `.ss help [subcommand]` | 任意用户 | 显示会话命令帮助 |
 
-**查找方式**：`id` / `index`（按会话 ID）、`title`（按标题）、`creator`（按创建者）。
+常用别名：`create` / `new`、`end` / `stop`、`select` / `选择`、`history` / `历史`、`STF` / `保存`、`help` / `帮助`。`Join`、`Quit` 使用首字母大写形式；全小写 `join`、`quit` 未注册。
 
-**会话命中优先级**：当前会话按以下顺序确定——
+公共参数：
 
-1. 用户主动 `select` 的会话；
-2. 用户加入的会话（取最后加入的一个）；
-3. 频道绑定的会话。
+| 参数 | 说明 |
+| --- | --- |
+| `<method>` | `id` / `index` / `i`、`title` / `t`、`creator` |
+| `<value>` | 会话 ID、精确标题或精确创建者昵称 |
+| `<title>` | 会话标题；含空格时加引号 |
+| `[description]` | 会话描述；含空格时加引号 |
+| `<user>` | 当前服务器在线昵称，精确匹配；可传多个 |
+| `[N]` | `.ss history`：1–50，默认 5；`.ch list`：1–100，默认 20 |
+| `[directory]` | 导出目录，默认 `./logs` |
+| `[filename]` | 文件名，默认会话标题 |
+| `[extension]` | 扩展名，默认 `txt` |
 
-均未命中时，部分操作会回退到「以你为创建者的会话」。当前为内部版本，命令行为可能随开发调整。
+示例：
 
-其余子命令（`status`、`activate`、`rest`、`adminset`、`adminsremove`、`adminslist`、`userlist`、`bind`、`cleanhistory`、`set`、`export`、`import`、`help`）在命令表中已注册但尚未实现，调用不会生效。
-
-### <a id="history"></a> 📜 历史记录与导出
-
-- 会话内历史用 `.ss history [N]` 查看，默认显示最近 20 条，格式类似：
-
+```text
+.ss create 黑水溪 "团本：黑水溪是本次跑团的模组"
+.ss select title 黑水溪
+.ss Join Sora32314 某人
+.ss history 10
+.ss STF ./logs 跑团记录 txt
+.ss help history
+.ss help start
 ```
-Session: 黑水溪 的历史记录获取成功:
-Sora32314 在 2026年09月02日14时30分15秒 投掷出 2d6+1d4-3
+
+`.ss help` 不带参数时列出会话子命令；`.ss help <子命令>` 显示该子命令的语法、权限、别名和示例；`.ss help start` 查看跑团快速开始。
+
+占位或尚未实现的子命令：`status`（仅写日志）、`activate`、`rest`、`userlist`、`bind`、`cleanhistory`、`set`、`export`、`import`。
+
+### 顶层 checkhistory
+
+```text
+<前缀><checkhistory|ch|his|history|check> list [N]
 ```
 
-- 导出用 `.ss STF`，默认生成在 `./logs`，文件以会话标题命名；也可通过参数指定目录、文件名与扩展名。
-- 顶层另有一个独立历史查询命令 `history`（别名 `ch`、`his`、`check`），与掷骰命令同级，用于查询当前上下文的投掷历史；该模块在源码注释中被标注为「可能未被使用」。
+- `list [N]`：按时间倒序显示最近 N 条记录，默认 20 条，上限 100 条。
+- `check` / `clear` 目前只返回固定字符串；`detail`、`stats`、`last`、`ID`、`Name` 未实现。
+- 日常查询建议使用 `.ss history`。
 
-## <a id="config"></a> ⚙️ 配置与日志
+## 日志与数据
 
-- **日志文件**：输出到 `logs/async_logs.txt`（基于 spdlog 的异步文件日志，见 [`Init_Plugin.cpp`](Modules/Plugin_GwongDong/src/Init_Plugin.cpp:22)）。日志包含命令分发、会话操作、骰子投掷等各模块的运行信息。
-- **服务器连接**：插件加载时自动连接 `localhost`。需要修改目标服务器地址 / 身份等信息时，编辑 [`Init_Plugin.cpp`](Modules/Plugin_GwongDong/src/Init_Plugin.cpp:350) 中 `ts3plugin_init()` 里的 `guiConnect` 参数后重新编译。
-- 外部配置项（历史条数上限、默认保存格式等）尚未开放，相关逻辑在代码中标注为待开发。
+- 日志写入 `logs/async_logs.txt`，使用 spdlog 异步文件日志；相对路径基于 TeamSpeak 3 客户端进程工作目录。
+- 会话、成员、管理员与投掷记录均保存在内存中，插件重启后清空。需要留档时使用 `.ss STF` 导出。
+- 会话 ID 为运行时分配，重启后从 1 重新开始。
+- 导出文件由 `GwongDongFileSystems` 写入，正文前包含自定义 MetaData 头，不是纯正文文本。
+- 导出目录不存在时会自动创建；重复导出到同一路径会覆盖原文件。
+- 每条记录包含玩家昵称、投掷时间、带出目的表达式、最终点数和备注。
 
-## <a id="structure"></a> 🏗️ 项目结构
+## 项目结构
 
-工程采用多模块 CMake 组织。`ExternModules/` 为仓库内置的三方依赖：
-
-```
-ExternModules/
-├─ spdlog-1.15.3/            # spdlog 源码（日志底层）
-└─ ts3client-pluginsdk-26/   # TeamSpeak 3 客户端插件 SDK v26
+```text
 Modules/
-├─ CommandCore/              # command_core：命令注册 / 分发 / 上下文
-├─ Loggings/                 # encapsulation_spdlog：spdlog 异步封装
-├─ GwongDongFileSystems/     # gwongdong_filesystem：带元数据的文件读写，用于历史导出
-├─ SaiKoLily/                # saiko_lily：骰子系统 / 会话管理 / 命令实现（核心）
-├─ Plugin_GwongDong/         # Plugin_GwongDong：TS3 插件入口，DLL 目标
-├─ TS3FuncWrapper/           # ts3wrapper：TS3 API 轻封装（独立共享库）
-└─ HelperFuncs/              # 辅助函数（暂未接入构建）
+├─ CommandCore/           命令注册、分发与上下文
+├─ Loggings/             spdlog 异步日志封装
+├─ GwongDongFileSystems/  带 MetaData 的文件读写
+├─ SaiKoLily/             骰子、会话与命令实现
+└─ Plugin_GwongDong/      TeamSpeak 3 插件入口，生成 DLL
+ExternModules/
+├─ spdlog-1.15.3/
+└─ ts3client-pluginsdk-26/
 ```
 
-各模块（静态库）依赖关系：
+依赖关系：
 
-```
-静态库 command_core          依赖 encapsulation_spdlog
-静态库 gwongdong_filesystem   依赖 encapsulation_spdlog
-静态库 saiko_lily            依赖 command_core / gwongdong_filesystem / encapsulation_spdlog
-共享库 Plugin_GwongDong      依赖 saiko_lily / command_core / gwongdong_filesystem / encapsulation_spdlog，输出最终插件 DLL
-共享库 ts3wrapper            TeamSpeak 3 API 轻封装，独立目标，为未来预留拓展空间。
+```text
+command_core           -> encapsulation_spdlog
+gwongdong_filesystem   -> encapsulation_spdlog
+saiko_lily             -> command_core / gwongdong_filesystem / encapsulation_spdlog
+Plugin_GwongDong       -> saiko_lily / command_core / gwongdong_filesystem / encapsulation_spdlog
 ```
 
-- [`SaiKoLily.hpp`](Modules/SaiKoLily/include/SaiKoLily.hpp:41) 提供骰子系统（`DiceSystem`）的骰子/配置/投掷事件实现；
-- [`SessionManager.hpp`](Modules/SaiKoLily/include/SessionManager.hpp:27) 提供会话生命周期与用户管理，每个会话绑定独立骰子系统；
-- 会话模块的类图设计见 [`MAP/SessionManager.puml`](MAP/SessionManager.puml:1)（PlantUML）。
+`DiceSystem` 负责骰子与投掷事件，`SessionManager` 负责会话、成员与命令处理；命令实现位于 `CMD_SaiKoLily.hpp` 与 `SessionManager.hpp`。
+
+## 已知限制
+
+- 当前仅支持 Windows 与 TeamSpeak 3 客户端（Plugin API v26）。
+- 连接地址与 Identity 在当前测试版本为了便于调试直接固定写在代码中，如需连接其他服务器，需要修改配置并重新编译或进行手动连接。
+- 会话数据未持久化，插件重启后将丢失。
+- 用户查询依赖当前服务器在线客户端缓存，仅支持昵称精确匹配，不支持离线用户。
+- 子命令别名区分大小写；`Join`、`Quit` 等需使用已注册的大小写形式。
+- `status`、`activate`、`rest` 等子命令尚未完成；`userlist` 等命令尚未实现。
+- 顶层 `checkhistory` 仅 `list` 可用。
+- 掷骰输出对首个表达式项不显示前导符号；建议以正数项开头。
+- 导出文件包含自定义 MetaData 头，外部工具读取时需要跳过头部。
 
 ## 许可证
 
-本项目基于 MIT 协议开源，详见 [LICENSE](LICENSE) 文件。
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE)。
 
-### The Project Made With ❤~
-
-### 作者：Sora32314
+作者：Sora32314

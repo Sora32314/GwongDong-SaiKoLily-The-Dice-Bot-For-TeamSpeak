@@ -26,7 +26,7 @@ add_subdirectory("./Modules")
 add_subdirectory(${exlib_loggings_dir})
 
 #试验台依赖 Modules 下创建的库目标，必须放在其后
-if(GD_BUILD_TESTSPACE)
+if(GD_BUILD_TESTSPACE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/TestSpace")
     add_subdirectory("./TestSpace")
 endif()
 
