@@ -60,7 +60,7 @@ cmake --build Build/Release --target Plugin_GwongDong
 
 ## 快速开始
 
-1. 创建会话：`.ss create 黑水溪 "团本：黑水溪是本次跑团的模组"`
+1. 创建会话：`.ss create 黑水溪 "萌新团：黑水溪将会是本次COC跑团的模组。下一次的去纯美苹果园找，最大技能等级上限80，禁止车超人卡！"`
 2. 加入玩家：`.ss Join 玩家A 玩家B`
 3. 开始掷骰：`!r 2d6+1d4-3`
 4. 查看与导出：`.ss history 10`、`.ss STF ./logs 跑团记录 txt`
