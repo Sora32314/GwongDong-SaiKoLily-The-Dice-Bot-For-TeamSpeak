@@ -1671,7 +1671,7 @@ namespace Sessions::SessionsCommandTemp
 
         static inline const std::vector<HelpEntry> HelpEntries =
         {
-            {TermType::Create, "create", ".ss create <title> [description]", "任意用户", "创建会话；创建者自动成为管理员并选中该会话", ".ss create 黑水溪 \"团本：黑水溪是本次跑团的模组\"", true},
+            {TermType::Create, "create", ".ss create <title> [description]", "任意用户", "创建会话；创建者自动成为管理员并选中该会话", ".ss create 黑水溪 \"`.ss create 黑水溪 \"萌新团：黑水溪将会是本次COC跑团的模组。下一次的去纯美苹果园找，最大技能等级上限80，禁止车超人卡！", true},
             {TermType::End, "end", ".ss end [<method> <value>]", "管理员", "结束当前选中的会话或指定会话", ".ss end title 黑水溪", true},
             {TermType::Status, "status", ".ss status", "成员", "占位实现：仅写入日志，返回内容为空", ".ss status", false},
             {TermType::Info, "info", ".ss info", "任意用户", "查看当前会话信息", ".ss info", true},
@@ -1745,7 +1745,7 @@ namespace Sessions::SessionsCommandTemp
                 "【重要】随机数引擎需要在加入会话后使用。未加入会话时单独掷骰会使用临时引擎，结果可能出现较大偏差，仅适合演示。\n"
                 "\n"
                 "1. 创建会话\n"
-                "   .ss create 黑水溪 \"团本：黑水溪是本次跑团的模组\"\n"
+                "   .ss create 黑水溪 \".ss create 黑水溪 \"萌新团：黑水溪将会是本次COC跑团的模组。下一次的去纯美苹果园找，最大技能等级上限80，禁止车超人卡！\"\n"
                 "   创建者会自动加入并选中该会话。\n"
                 "\n"
                 "2. 加入玩家\n"
