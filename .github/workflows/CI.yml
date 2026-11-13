@@ -1,0 +1,53 @@
+name: GwongDong_SaiKoLily CI
+
+on:
+  push:
+    branches: 
+      - main
+  pull_request:
+    branches: 
+      - main
+  workflow_dispatch:
+
+permissions: { contents: read }
+
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      
+      #tool-chain
+      - name: install-tool-chain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: add-tool-chain-path
+        shell: pwsh
+        run: '"C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH'
+
+      - name: verify-tool-chain
+        shell: pwsh
+        run: |
+          (Get-Command gcc).Source
+          gcc --version
+          (Get-Command g++).Source
+          g++ --version
+          (Get-Command ninja).Source
+          ninja --version
+          (Get-Command cmake).Source
+          cmake --version
+
+      - name: configure
+        run: cmake --preset "ci windows"
+
+      - name: Build
+        run: cmake --build --preset "CI Windows Build"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Plugin_GwongDong-${{ github.sha }}
+          path: Build/CI/bin/libPlugin_GwongDong.dll
+          if-no-files-found: error

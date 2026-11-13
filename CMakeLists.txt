@@ -1,5 +1,5 @@
-#构建最小CMake版本:4.0.1
-cmake_minimum_required(VERSION 4.0.1)
+#构建最小CMake版本:3.13.0
+cmake_minimum_required(VERSION 3.31.0)
 
 #外部库路径
 set(exlib_loggings_dir ${CMAKE_SOURCE_DIR}/ExternModules/spdlog-1.15.3/)

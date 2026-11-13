@@ -74,6 +74,30 @@
                 "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "$env{HOME}/project/GwongDong_SaiKoLily/Linux-Release/bin",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
+        },
+        {
+            "name": "ci windows",
+            "displayName": "ci windows",
+            "description": "Build Core Target In Windows CI Release.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/Build/CI",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc.exe",
+                "CMAKE_CXX_COMPILER": "g++.exe",
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "23",
+                "CMAKE_CXX_EXTENSIONS": "OFF",
+                "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
+
+                "ENABLE_CPPCHECK": false,
+                "GD_BUILD_TESTSPACE": false,
+
+                "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI/lib",
+                "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI/lib",
+                "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI/bin",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -114,6 +138,17 @@
         {
             "name": "Linux Build",
             "configurePreset": "linux_x86_64 release",
+            "configuration": "Release",
+            "targets": [
+                "Plugin_GwongDong",
+                "encapsulation_spdlog",
+                "saiko_lily",
+                "command_core"
+            ]
+        },
+        {
+            "name": "CI Windows Build",
+            "configurePreset": "ci windows",
             "configuration": "Release",
             "targets": [
                 "Plugin_GwongDong",
