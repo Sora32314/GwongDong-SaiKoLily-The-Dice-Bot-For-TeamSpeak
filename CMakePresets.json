@@ -104,7 +104,7 @@
             "displayName": "ci linux",
             "description": "Build Core Target In Linux CI Release.",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/GwongDong_SaiKoLily/Build/CI-Linux/",
+            "binaryDir": "${sourceDir}/Build/CI-Linux/",
             "condition": {
                 "type": "equals",
                 "lhs": "${hostSystemName}",
@@ -122,9 +122,9 @@
                 "ENABLE_CPPCHECK": false,
                 "GD_BUILD_TESTSPACE": false,
 
-                "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/GwongDong_SaiKoLily/Build/CI-Linux/lib",
-                "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/GwongDong_SaiKoLily/Build/CI-Linux/lib",
-                "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/GwongDong_SaiKoLily/Build/CI-Linux/bin",
+                "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI-Linux/lib",
+                "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI-Linux/lib",
+                "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI-Linux/bin",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         }
