@@ -1,4 +1,4 @@
-name: GwongDong_SaiKoLily CI
+name: GwongDong_SaiKoLily CI Windows Platform
 
 on:
   push:
@@ -49,5 +49,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Plugin_GwongDong-${{ github.sha }}
-          path: Build/CI/bin/libPlugin_GwongDong.dll
+          path: Build/CI-Windows/bin/libPlugin_GwongDong.dll
           if-no-files-found: error

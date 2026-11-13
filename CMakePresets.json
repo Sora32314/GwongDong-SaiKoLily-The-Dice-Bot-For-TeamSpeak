@@ -2,7 +2,7 @@
     "version": 10,
     "cmakeMinimumRequired": {
         "major": 3,
-        "minor": 25,
+        "minor": 31,
         "patch": 0
     },
     "configurePresets": [
@@ -80,7 +80,7 @@
             "displayName": "ci windows",
             "description": "Build Core Target In Windows CI Release.",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/Build/CI",
+            "binaryDir": "${sourceDir}/Build/CI-Windows",
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "gcc.exe",
                 "CMAKE_CXX_COMPILER": "g++.exe",
@@ -93,9 +93,38 @@
                 "ENABLE_CPPCHECK": false,
                 "GD_BUILD_TESTSPACE": false,
 
-                "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI/lib",
-                "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI/lib",
-                "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI/bin",
+                "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI-Windows/lib",
+                "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI-Windows/lib",
+                "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/Build/CI-Windows/bin",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "ci linux",
+            "displayName": "ci linux",
+            "description": "Build Core Target In Linux CI Release.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/GwongDong_SaiKoLily/Build/CI-Linux/",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc-16",
+                "CMAKE_CXX_COMPILER": "g++-16",
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "23",
+                "CMAKE_CXX_EXTENSIONS": "OFF",
+                "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
+
+                "ENABLE_CPPCHECK": false,
+                "GD_BUILD_TESTSPACE": false,
+
+                "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/GwongDong_SaiKoLily/Build/CI-Linux/lib",
+                "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/GwongDong_SaiKoLily/Build/CI-Linux/lib",
+                "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/GwongDong_SaiKoLily/Build/CI-Linux/bin",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         }
@@ -149,6 +178,17 @@
         {
             "name": "CI Windows Build",
             "configurePreset": "ci windows",
+            "configuration": "Release",
+            "targets": [
+                "Plugin_GwongDong",
+                "encapsulation_spdlog",
+                "saiko_lily",
+                "command_core"
+            ]
+        },
+        {
+            "name": "CI Linux Build",
+            "configurePreset": "ci linux",
             "configuration": "Release",
             "targets": [
                 "Plugin_GwongDong",
