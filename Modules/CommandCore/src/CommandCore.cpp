@@ -1,6 +1,7 @@
 #include <CommandCore.hpp>
 #include <unordered_map>
 #include <mutex>
+#include <shared_mutex>
 
 /*
     可能使用mutex保证并行支持，虽然其他模块暂时尚未支持多线程，但是不排除后续支持多线程修改可能。
@@ -20,15 +21,27 @@ namespace Command_Core
 
     class CommandRegistryImpl final : public ICommandRegistry
     {
+        using CommandName = std::string;
+        using Alias = std::string;
+        using Unique_Ptr_CommandHandler = std::unique_ptr<ICommandHandler>;
+
     public:
         void RegisterHandler(std::unique_ptr<ICommandHandler> handler) override
         {
             std::lock_guard<std::mutex> lock(mutex_);
             std::string_view name = handler->GetName();
             auto aliasList = handler->GetAlias();
+
+            //重复注册排查
+            if(handlers.find(name) != handlers.end() || aliases.find(name) != aliases.end())
+            {
+                //已存在命令，禁止重复注册！
+                cc_logCallback(std::format("{}命令已存在，禁止重复注册！", name), Plugin_Logs::logLevel::critical, true);
+                return;
+            }
+
             handlers.emplace(name, std::move(handler));
-            
-            
+
             //注册别名
             for (auto alias : aliasList)
             {
@@ -49,7 +62,7 @@ namespace Command_Core
             }
 
             //再尝试从别名中寻找后去主存储中判断别名是否存在对应的命令，之后返回
-            if(aliasIter != aliases.end())
+            else if(aliasIter != aliases.end())
             {
                 auto iter_from_alias = handlers.find(aliasIter->second);
                 if(iter_from_alias != handlers.end())
@@ -58,13 +71,17 @@ namespace Command_Core
                 }
             }
 
+            //如果别名中没有，尝试寻找注入表。
+
             return nullptr;
         }
 
     private:
         mutable std::mutex mutex_;
-        std::map<std::string_view, std::unique_ptr<ICommandHandler>, std::less<>> handlers;
-        std::map<std::string_view, std::string_view, std::less<>> aliases;
+        
+        std::map<CommandName, Unique_Ptr_CommandHandler, std::less<>> handlers;
+
+        std::map<Alias, CommandName, std::less<>> aliases;
     };
 
     class CommandCheckerImpl final : public ICommandChecker
@@ -75,6 +92,22 @@ namespace Command_Core
         void SetResultCallback(std::shared_ptr<IResultCallback> callback) override
         {
             resultCallback = callback;
+        }
+
+        void AddFallbackHandler(std::unique_ptr<IFallbackHandler> handler) override
+        {
+            if(!handler)
+            {
+                if(cc_logCallback)
+                {
+                    cc_logCallback("AddFallbackHandler: 收到空 handler，已忽略。",
+                                   Plugin_Logs::logLevel::warn, true);
+                }
+                return;
+            }
+
+            std::unique_lock<std::shared_mutex> lock(fallbackMutex);
+            fallbacks.insert(fallbacks.end(), std::move(handler));
         }
 
         //检测命令逻辑
@@ -97,21 +130,6 @@ namespace Command_Core
             std::vector<std::string_view> tokens;
             TokenizeCommand(command_view, tokens);
 
-            if(tokens.empty())
-            {
-                //非有效命令
-                return false;
-            }
-
-            //查找命令验证器
-            auto* handler = registry.FindHandler(tokens[0]);
-            if(!handler)
-            {
-                cc_logCallback(std::format("未找到命令：{}", tokens[0]), Plugin_Logs::logLevel::warn, false);
-                return false;
-            }
-
-
             //创建上下文
             CommandContextImpl context
             (
@@ -122,24 +140,61 @@ namespace Command_Core
                 resultCallback
             );
 
-            //执行命令
-            try
+            if(tokens.empty())
             {
-                handler->Execute(context);
-                cc_logCallback(std::format("命令执行：{}", std::string(tokens[0])), Plugin_Logs::logLevel::info, false);
-                return true;
-            }
-            catch (const std::exception& err)
-            {
-                cc_logCallback(std::format("命令：{}，执行错误！\n错误信息：{}", std::string(tokens[0]), std::string(err.what())), Plugin_Logs::logLevel::err, false);
-                return true;
+                //非有效命令
+                return false;
             }
 
+            //查找命令验证器
+            if(auto handler = registry.FindHandler(tokens[0]))
+            {
+                try
+                {
+                    handler->Execute(context);
+                    cc_logCallback(std::format("命令执行：{}", std::string(tokens[0])), Plugin_Logs::logLevel::info, false);
+                    return true;
+                }
+                catch (const std::exception& err)
+                {
+                    cc_logCallback(std::format("命令：{}，执行错误！\n错误信息：{}", std::string(tokens[0]), std::string(err.what())), Plugin_Logs::logLevel::err, false);
+                    return true;
+                }
+            }
+
+            //查找注入命令
+            {
+                std::shared_lock<std::shared_mutex> lock(fallbackMutex);
+
+                for(auto& fallback : fallbacks)
+                {
+                    if(!fallback->CanHandle(context))
+                        continue;
+
+                    try
+                    {
+                        if(!fallback->TryHandle(context))
+                            continue;
+
+                        cc_logCallback(std::format("命令执行：{}（由 {} 处理）",
+                                                   std::string(tokens[0]),
+                                                   std::string(fallback->GetName())),
+                                       Plugin_Logs::logLevel::info, false);
+                        return true;
+                    }
+                    catch(const std::exception& e)
+                    {
+                        cc_logCallback(std::format("fallback：{} 命令时发生了错误：{}", tokens[0], e.what()), Plugin_Logs::logLevel::err, true);
+                        return true;
+                    }
+                }
+            }
+
+            cc_logCallback(std::format("未找到命令：{}", context.GetCommandName()), Plugin_Logs::logLevel::warn, false);
+            return false;
         }
     private:
-        //分词器，防止创建多余字符串
-
-        //TODO:改进分词器-State_2
+        //分词器，防止创建多余字符串。Tokens[0]为识别到的命令，余后Tokens[1...]为参数
         void TokenizeCommand(std::string_view inputs, std::vector<std::string_view>& tokens)
         {
             tokens.clear();
@@ -178,8 +233,6 @@ namespace Command_Core
                         end++; 
                     }
                     
-                    //如果想去除引号，可以使用 tokens.push_back(inputs.substr(start + 1, end - start - 2));
-                    //现在去除引号
                     
                     tokens.push_back(inputs.substr(start + 1, end - start - 2));
                 }
@@ -199,7 +252,6 @@ namespace Command_Core
                 start = end;
             }
         }
-       
 
         class CommandContextImpl final : public ICommandContext
         {
@@ -228,6 +280,11 @@ namespace Command_Core
             }
 
             ~CommandContextImpl() override = default;
+
+            std::string_view GetCommandName() const override
+            {
+                return tokens.empty() ? std::string_view{} : tokens[0];
+            }
 
             std::string_view GetRawCommand() const override
             {
@@ -433,11 +490,12 @@ namespace Command_Core
             MessageTarget messageTarget;
         };
 
-
     private:
         ICommandRegistry& registry;
         std::vector<std::string_view> tokens;
         std::shared_ptr<IResultCallback> resultCallback;
+        std::vector<std::unique_ptr<IFallbackHandler>> fallbacks;
+        std::shared_mutex fallbackMutex;
     };
 
     class ClientInfoStorage : public IClientInfoStorage

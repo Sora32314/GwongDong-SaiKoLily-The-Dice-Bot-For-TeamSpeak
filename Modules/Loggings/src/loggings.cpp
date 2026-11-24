@@ -173,6 +173,8 @@ namespace Plugin_Logs
         }
     }
 
+    Log::~Log() = default;
+
     /// @brief 销毁日志实现类对象
     void Log::DestroyInstance()
     {

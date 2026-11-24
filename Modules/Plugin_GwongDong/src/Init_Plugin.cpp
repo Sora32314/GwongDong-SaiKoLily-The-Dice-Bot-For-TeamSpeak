@@ -33,6 +33,7 @@ std::shared_ptr<SaiKoLily::DiceSystem::DiceSystemImpl> DS = std::make_shared<Sai
 static auto registry = Command_Core::CreateRegistry();
 static auto checker = Command_Core::CreateCMDChecker(*registry);
 
+
 //获取User缓存
 auto& clientCache = Command_Core::GetClientInfoStorage();
 
@@ -121,26 +122,6 @@ public:
     }
 };
 
-// void UpdateServerUserCache(uint64 serverConnectionHandlerID)
-// {
-//     std::lock_guard lock(clientCacheMutex);
-//     Command_Core::ClientInfoPackage.erase(serverConnectionHandlerID);
-//     anyID* clientIDArray = nullptr;
-//     if(ts3Functions.getClientList(serverConnectionHandlerID, &clientIDArray) == ERROR_ok && clientIDArray)
-//     {
-//         for(size_t i = 0; clientIDArray[i] != 0; i++)
-//         {
-//             anyID clientID = clientIDArray[i];
-//             char* clientName = nullptr;
-//             if(ts3Functions.getClientVariableAsString(serverConnectionHandlerID, clientID, CLIENT_NICKNAME, &clientName) == ERROR_ok && clientName)
-//             {
-//                 Command_Core::ClientInfoPackage[serverConnectionHandlerID].push_back({std::string(clientName), clientID});
-//                 ts3Functions.freeMemory(clientName);
-//             }
-//         }
-//         ts3Functions.freeMemory(clientIDArray);
-//     }
-// }
 
 //信息包装器 匿名函数包装
 FillInfoPackageFunc FillInfoPackage = [](uint64 serverConnectionHandlerID,
@@ -408,9 +389,21 @@ int ts3plugin_init()
        logInstance->Logging(msg, level, flush);
     });
 
+    ProfileRouter::SetLogCallback([](const std::string& msg, Plugin_Logs::logLevel level, bool flush)
+    {
+        logInstance->Logging(msg, level, flush);
+    });
+
     SaiKoLily::DiceCommand::RegisterDiceCommands(*registry);
     SaiKoLily::CheckCommand::RegisterHistoryCommands(*registry);
     Sessions::RegisterSessionsCommand(*registry);
+
+    // 注册规则包动态命令的 fallback 路由。
+    // 内置命令永远优先；未命中时由 ProfileRouter 按当前会话解析规则包。
+    // 所有权转移给 checker，随插件生命周期存活。
+    checker->AddFallbackHandler(
+        ProfileRouter::CreateCommandRouter(
+            Sessions::CreateProfileSessionProvider()));
 
     checker->SetResultCallback(resultCallback);
     
@@ -432,13 +425,6 @@ int ts3plugin_init()
         }
     }
 
-    
-    // auto&& i = 0;
-    // for(auto&& name : channelNAME)
-    // {
-    //     logInstance->Logging(std::format("频道ID:{}，频道名：{}", channelIDs[i], name), Plugin_Logs::logLevel::info);
-    // }
-
     // 释放频道列表内存
     ts3Functions.freeMemory(channelIDs);
 
@@ -449,13 +435,22 @@ void ts3plugin_shutdown()
 {
     //插件结束时运行代码
 
-    spdlog::shutdown();
+    // 先释放命令层：checker 持有 ProfileRouter / provider，
+    // 确保它们早于 SessionManager 与日志实例销毁。
+    checker.reset();
+    registry.reset();
 
-    logInstance->DestroyInstance();
-    free(logInstance);
-    logInstance = nullptr;
-
+    // 在日志仍然可用时销毁连接句柄，避免回调里访问已释放的 logInstance。
     ts3Functions.destroyServerConnectionHandler(serverConnectionHandlerID);
+
+    if (logInstance)
+    {
+        logInstance->DestroyInstance();
+        delete logInstance;
+        logInstance = nullptr;
+    }
+
+    spdlog::shutdown();
 
     if (pluginID) 
     {
@@ -538,14 +533,6 @@ LIB_EXPORT void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHand
                 // 释放频道ID数组内存
                 ts3Functions.freeMemory(channelIDs);
                 
-                // 记录频道信息
-                //logInstance->Logging(channelInfo, Plugin_Logs::logLevel::info, false);
-                
-                // 发送到当前频道（仅限调试，正式环境可能需要移除）
-                // ts3Functions.requestSendChannelTextMsg(serverConnectionHandlerID, 
-                //                                       channelInfo.c_str(), 
-                //                                       0,  // 当前频道
-                //                                       nullptr);
             }
 
             //构建服务器UUID以及连接句柄的双向映射

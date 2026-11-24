@@ -701,7 +701,7 @@ namespace SaiKoLily::CheckCommand
         {"-l", TermType::Last},
         {"ID", TermType::ID},
         {"Name", TermType::Name},
-        {"check", TermType::Check},
+        {"dice-check", TermType::Check},
         {"检定", TermType::Check},
         {"判定", TermType::Check}
     };

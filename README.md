@@ -238,6 +238,12 @@ Plugin_GwongDong       -> saiko_lily / command_core / gwongdong_filesystem / enc
 
 `DiceSystem` 负责骰子与投掷事件，`SessionManager` 负责会话、成员与命令处理；命令实现位于 `CMD_SaiKoLily.hpp` 与 `SessionManager.hpp`。
 
+## 开发文档
+
+- [`Modules/CommandCore/MANUAL.md`](Modules/CommandCore/MANUAL.md)：CommandCore 维护手册。包含接口契约、命令/别名总表、设计决策、坑清单、操作指南与排查表。修改命令框架前先读它。
+- `Doxygen/html`：API 参考，但为 2026-04 快照，行号已过期；概念可查，行号以手册为准。
+- `plans/*.md`：规则包运行时、UUID 身份等设计文档（本地文件，不随仓库提交）。
+
 ## 已知限制
 
 - 当前仅支持 Windows 与 TeamSpeak 3 客户端（Plugin API v26）。

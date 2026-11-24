@@ -1,4 +1,5 @@
 #include <SessionManager.hpp>
+#include <ProfileRouter.hpp>
 
 #include <algorithm>
 
@@ -24,6 +25,36 @@ namespace Sessions
     void SetLogCallback(Sessions_LogCallback callback)
     {
         cmds_logCallback = callback; 
+    }
+
+    Command_Core::UserLevel EvaluateUserLevel(const Command_Core::ICommandContext& context, const Sessions::SessionTemp::Session* session)
+    {
+        if(!session)
+            return Command_Core::UserLevel::NonMember;
+
+        const std::string_view userUUID = context.GetCallingUserUUID();
+
+        const ID userID = context.GetCallingClientID();
+        
+        const std::string_view creatorUUID = session->GetCreatorUUID();
+
+        // Creator 以 UUID 为准；仅有旧会话（creatorUUID 为空）时退回 clientID 比对。
+        if((!userUUID.empty() && !creatorUUID.empty() && creatorUUID == userUUID) || (creatorUUID.empty() && session->GetCreateID() == userID))
+            return Command_Core::UserLevel::Creator;
+
+        for(const auto& member : session->GetAdminEntities())
+        {
+            if(!userUUID.empty() && member.uuid == userUUID)
+                return Command_Core::UserLevel::Admins;
+        }
+
+        for(const auto& member : session->GetUserEntity())
+        {
+            if(!userUUID.empty() && member.uuid == userUUID)
+                return Command_Core::UserLevel::Member;
+        }
+
+        return Command_Core::UserLevel::NonMember;
     }
 }
 
@@ -119,6 +150,26 @@ namespace Sessions::Session
         const std::string_view GetDescription() const override
         {
             return description;
+        }
+
+        std::shared_ptr<const ProfileRouter::IProfile> GetProfile() const override
+        {
+            return profile;
+        }
+
+        void SetProfile(std::shared_ptr<const ProfileRouter::IProfile> newProfile) override
+        {
+            profile = std::move(newProfile);
+        }
+
+        std::string_view GetProfilePath() const override
+        {
+            return profilePath;
+        }
+
+        void SetProfilePath(std::string_view path) override
+        {
+            profilePath = path;
         }
 
         [[deprecated("使用GetUserImpl，此后SessionImpl中只存在带有权限等级的User。")]]
@@ -367,6 +418,8 @@ namespace Sessions::Session
         std::unique_ptr<IDiceSystem> dice_system;
         std::vector<Command_Core::UserEntity> user_entity;
         std::chrono::utc_clock::time_point time_created;
+        std::shared_ptr<const ProfileRouter::IProfile> profile;
+        std::string profilePath;
     };
 
 }
@@ -757,17 +810,18 @@ namespace Sessions::SessionManager
                 }
             }
 
-            const auto allSessions = GetSessionsList();
+            // 说明：这里直接遍历内部 sessions，避免调用会打日志的 GetSessionsList()。
+            // 本函数要求调用方已持有 mutex，直接访问 sessions 是安全的。
 
             //第二优先级：用户已加入的会话（UUID 优先，clientID 仅在 UUID 缺失时兜底）
-            for(const auto& sessionRef : allSessions)
+            for(const auto& entry : sessions)
             {
-                const auto& session = sessionRef.get();
+                const auto& session = *entry.second;
 
                 if(!serverUUID.empty() && session.GetServerUUID() != serverUUID)
                     continue;
 
-                for(const auto& member : session.GetUsers())
+                for(const auto& member : session.GetUserEntity())
                 {
                     const bool matched = !userUUID.empty()
                         ? (!member.uuid.empty() && member.uuid == userUUID)
@@ -779,9 +833,9 @@ namespace Sessions::SessionManager
             }
 
             //第三优先级：频道绑定（同服务器、Channel 类型、频道 ID 匹配）
-            for(const auto& sessionRef : allSessions)
+            for(const auto& entry : sessions)
             {
-                const auto& session = sessionRef.get();
+                const auto& session = *entry.second;
 
                 if(session.GetSessionType() != Sessions::SessionsType::Channel)
                     continue;
@@ -794,6 +848,49 @@ namespace Sessions::SessionManager
             }
 
             return 0;
+        }
+
+        /**
+         * @brief 一次加锁解析“当前会话 → profile → 命令 → 权限”
+         *
+         * 供 ProfileRouter 的 IProfileSessionProvider 调用。返回的 profile 以
+         * shared_ptr 拷贝带出，绝不把 Session* 暴露到锁外。
+         */
+        std::optional<ProfileRouter::ProfileResolution> ResolveProfile(
+            const Command_Core::ICommandContext& context)
+        {
+            // 服务器 UUID 是会话作用域的 canonical key。尚未建立映射时失败关闭，
+            // 避免在 serverUUID 为空时解析到其他服务器上的会话。
+            if(context.GetServerUUID().empty())
+                return std::nullopt;
+
+            std::lock_guard<std::mutex> lock(mutex);
+
+            if(sessions.empty())
+                return std::nullopt;
+
+            const ID sessionID = GetSelectedSessionOfUserUnlocked(context);
+            if(sessionID == 0)
+                return std::nullopt;
+
+            const auto sessionIt = sessions.find(sessionID);
+            if(sessionIt == sessions.end())
+                return std::nullopt;
+
+            auto* session = sessionIt->second.get();
+            auto profile = session->GetProfile();
+            if(!profile)
+                return std::nullopt;
+
+            const auto* command = profile->FindCommand(context.GetCommandName());
+            if(!command)
+                return std::nullopt;
+
+            return ProfileRouter::ProfileResolution{
+                std::move(profile),
+                command,
+                Sessions::EvaluateUserLevel(context, session)
+            };
         }
 
         const std::unordered_map<std::string, std::unordered_map<std::string, ID>>& GetSelectionOfSession() const override
@@ -1301,6 +1398,31 @@ namespace Sessions::SessionsCommand
 
 namespace Sessions
 {
+    namespace
+    {
+        class ProfileSessionProviderImpl final : public ProfileRouter::IProfileSessionProvider
+        {
+        public:
+            explicit ProfileSessionProviderImpl(SessionManager::SessionManagerImpl& manager)
+                : manager(manager) {}
+
+            std::optional<ProfileRouter::ProfileResolution> Resolve(
+                const Command_Core::ICommandContext& context) const override
+            {
+                return manager.ResolveProfile(context);
+            }
+
+        private:
+            SessionManager::SessionManagerImpl& manager;
+        };
+    }
+
+    std::shared_ptr<ProfileRouter::IProfileSessionProvider> CreateProfileSessionProvider()
+    {
+        return std::make_shared<ProfileSessionProviderImpl>(
+            SessionManager::SessionManagerImpl::GetInstance());
+    }
+
     void RegisterSessionsCommand(Command_Core::ICommandRegistry &registry)
     {
         registry.RegisterHandler(std::make_unique<SessionsCommand::SessionsCommandImpl>());

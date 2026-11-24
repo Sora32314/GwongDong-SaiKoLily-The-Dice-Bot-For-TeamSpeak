@@ -161,7 +161,10 @@
                 "encapsulation_spdlog",
                 "saiko_lily",
                 "command_core",
-                "GwongDongFS_Bench"
+                "profile_router",
+                "GwongDongFS_Bench",
+                "CommandCore_Bench",
+                "ProfileRouter_Bench"
             ]
         },
         {

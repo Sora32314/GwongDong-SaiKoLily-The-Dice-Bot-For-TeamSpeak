@@ -34,7 +34,8 @@ namespace Plugin_Logs
     class Log
     {
     public:
-        ~Log() = default;
+        // 析构必须在 .cpp 中定义：pImpl 的完整类型只在那里可见。
+        ~Log();
         Log(std::string_view logPath);
 
         //禁止拷贝和赋值

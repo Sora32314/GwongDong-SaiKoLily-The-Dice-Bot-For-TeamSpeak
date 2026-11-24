@@ -36,3 +36,4 @@ target_include_directories(${lib_name}
 target_link_libraries(${lib_name} PRIVATE encapsulation_spdlog)
 target_link_libraries(${lib_name} PRIVATE command_core)
 target_link_libraries(${lib_name} PRIVATE gwongdong_filesystem)
+target_link_libraries(${lib_name} PRIVATE profile_router)

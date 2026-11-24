@@ -65,8 +65,8 @@ namespace Command_Core
      */
     typedef struct {
         std::string nickName;
-        anyID clientID = 0;
-        uint64_t channelID = 0;
+        anyID clientID;
+        uint64_t channelID;
         std::string uniqueID;
     } ClientInfoPackage;
 
@@ -250,6 +250,9 @@ namespace Command_Core
         virtual ~ICommandContext() = default;
 
     public:
+
+        virtual std::string_view GetCommandName() const = 0;
+
         /**
          * @brief 获取触发当前命令的原始消息文本（包含命令前缀和参数）
          * @return 原始命令字符串视图，生命周期与上下文对象相同
@@ -477,6 +480,33 @@ namespace Command_Core
     };
 
     /**
+     * @brief 动态命令兜底处理器接口
+     *
+     * 当 `ICommandRegistry::FindHandler()` 未命中内置命令时，`ICommandChecker`
+     * 会按注册顺序依次询问已注册的 fallback。fallback 适合承接“会话级 / 规则包级”
+     * 的动态命令：这些命令不应注册进全局 registry（registry 是单一命名空间，
+     * 且以 `string_view` 为键，无法表达不同会话的差异）。
+     *
+     * 契约：
+     * - `GetName()` 返回稳定字面量，仅用于日志；
+     * - `CanHandle()` 是轻量候选判断，返回 true 不代表一定处理；
+     * - `TryHandle()` 返回 true 表示“已处理”（包括给用户回了权限不足等提示），
+     *   返回 false 表示“不适用”，checker 会继续尝试下一个 fallback；
+     * - fallback 在 checker 的生命周期内被独占持有，应只在线程开始处理消息前注册。
+     */
+    class IFallbackHandler
+    {
+    public:
+        virtual ~IFallbackHandler() = default;
+
+        virtual std::string_view GetName() const = 0;
+
+        virtual bool CanHandle(const ICommandContext& context) const = 0;
+
+        virtual bool TryHandle(const ICommandContext& context) = 0;
+    };
+
+    /**
      * @brief 命令注册器接口
      *
      * `ICommandRegistry` 是 `CommandCore` 框架中管理所有命令处理器的注册表。
@@ -518,7 +548,13 @@ namespace Command_Core
          * 先比对正式名称，若匹配失败则遍历所有别名。匹配通常不区分大小写（具体由实现决定）。
          *
          * @param command 待查找的命令字符串（通常为用户输入的第一个词，如 `.ss`、`roll`）
-         * @return 若找到匹配的处理器，返回其原始指针；否则返回 `nullptr`
+         * @return 若找到匹配的处理器，返回其原始指针（所有权仍归注册器，调用方不得释放或缓存）；
+         *         否则返回 `nullptr`
+         *
+         * @warning 返回的指针是借用语义：注册器以 `unique_ptr` 独占持有处理器，本接口
+         *          不转移所有权。当前实现约定「注册表只增不减」（不提供注销 / 热重载），
+         *          因此指针在注册器生命周期内始终有效。若将来引入注销或热重载，本接口必须
+         *          同步改为 `std::shared_ptr<ICommandHandler>`，否则 `Execute` 期间存在 UAF 风险。
          */
         virtual ICommandHandler* FindHandler(std::string_view command) const = 0;
     };
@@ -559,6 +595,17 @@ namespace Command_Core
          * @param callback 结果回调接口的共享指针，内部通常保存其弱引用或共享所有权
          */
         virtual void SetResultCallback(std::shared_ptr<IResultCallback> callback) = 0;
+
+        /**
+         * @brief 注册一个动态命令兜底处理器
+         *
+         * 所有权转移给 checker。fallback 按注册顺序尝试；`CanHandle()` 返回 true 后
+         * 才会调用 `TryHandle()`，`TryHandle()` 返回 false 时继续尝试下一个。
+         *
+         * @note 应在任何消息处理开始前（例如 `ts3plugin_init`）完成注册；
+         *       运行期不要增删 fallback。
+         */
+        virtual void AddFallbackHandler(std::unique_ptr<IFallbackHandler> handler) = 0;
 
         /**
          * @brief 处理一条原始消息，尝试解析并执行对应命令

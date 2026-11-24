@@ -27,6 +27,12 @@ namespace SaiKoLily {
 }
 using IDiceSystem = SaiKoLily::DiceSystem::IDiceSystem;
 
+namespace ProfileRouter
+{
+    class IProfile;
+    class IProfileSessionProvider;
+}
+
 namespace Sessions
 {
     /**
@@ -162,7 +168,8 @@ namespace Sessions::SessionTemp
     public:
         Session() = default;
         
-        ~Session() = default;
+        // 会话通过 std::unique_ptr<Session> 持有，析构函数必须是虚函数。
+        virtual ~Session() = default;
 
         //禁止拷贝和赋值
         Session(const Session&) = delete;
@@ -180,6 +187,31 @@ namespace Sessions::SessionTemp
         virtual const SessionsType GetSessionType() const = 0;
         virtual const std::string_view GetTitle() const = 0;
         virtual const std::string_view GetDescription() const = 0;
+
+        /**
+         * @brief 获取当前会话绑定的规则包
+         *
+         * 返回的 shared_ptr 保证在调用方持有期间规则包不会被析构。
+         * 未注入规则包时返回 nullptr。
+         */
+        virtual std::shared_ptr<const ProfileRouter::IProfile> GetProfile() const = 0;
+
+        /**
+         * @brief 绑定 / 替换当前会话的规则包
+         *
+         * 传 nullptr 表示卸载规则包。
+         */
+        virtual void SetProfile(std::shared_ptr<const ProfileRouter::IProfile> profile) = 0;
+
+        /**
+         * @brief 获取规则包的源文件路径（仅用于展示 / 持久化）
+         */
+        virtual std::string_view GetProfilePath() const = 0;
+
+        /**
+         * @brief 设置规则包的源文件路径
+         */
+        virtual void SetProfilePath(std::string_view path) = 0;
 
         [[deprecated("使用GetUserImpl，此后SessionImpl中只存在带有权限等级的User。")]]
         virtual const std::vector<Command_Core::UserEntity> GetUsers() const = 0;
@@ -230,6 +262,24 @@ namespace Sessions::SessionTemp
     };
 
 
+}
+
+namespace Sessions
+{
+    /**
+     * @brief 计算调用者在指定会话中的权限等级
+     *
+     * 规则与 SessionsCommand 的鉴权保持一致：
+     * - Creator 以 UUID 为准；旧会话 creatorUUID 为空时退回 clientID 比对；
+     * - Admins / Member 均以 UUID 比对；
+     * - 不在会话中返回 NonMember。
+     *
+     * @param context 命令上下文
+     * @param session 目标会话；为 nullptr 时返回 NonMember
+     */
+    Command_Core::UserLevel EvaluateUserLevel(
+        const Command_Core::ICommandContext& context,
+        const Sessions::SessionTemp::Session* session);
 }
 
 
@@ -709,44 +759,11 @@ namespace Sessions::SessionsCommandTemp
         }
 
         //鉴权
-        static Command_Core::UserLevel GetUserLevel(TermType command, const Command_Core::ICommandContext& context, const Sessions::SessionTemp::Session* session)
+        static Command_Core::UserLevel GetUserLevel([[maybe_unused]] TermType command,
+                                                    const Command_Core::ICommandContext& context,
+                                                    const Sessions::SessionTemp::Session* session)
         {
-            if(!session)
-                return Command_Core::UserLevel::NonMember;
-
-            const std::string_view userUUID = context.GetCallingUserUUID();
-            const ID userID = context.GetCallingClientID();
-            const std::string_view creatorUUID = session->GetCreatorUUID();
-
-            // Creator 以 UUID 为准；仅有旧会话（creatorUUID 为空）时退回 clientID 比对。
-            if((!userUUID.empty() && !creatorUUID.empty() && creatorUUID == userUUID) ||
-               (creatorUUID.empty() && session->GetCreateID() == userID))
-                return Command_Core::UserLevel::Creator;
-            
-            const auto adminsList = session->GetAdminEntities();
-
-            if(!adminsList.empty())
-            {
-                for(const auto& member : adminsList)
-                {
-                    if(!userUUID.empty() && member.uuid == userUUID)
-                        return Command_Core::UserLevel::Admins;
-                }
-            }
-
-            const auto userList = session->GetUsers();
-            if(!userList.empty())
-            {
-                for(const auto& member : userList)
-                {
-                    if(!userUUID.empty() && member.uuid == userUUID)
-                        return Command_Core::UserLevel::Member;
-                }
-            }
-
-
-            
-            return Command_Core::UserLevel::NonMember;
+            return Sessions::EvaluateUserLevel(context, session);
         }
 
         /**
@@ -1885,5 +1902,14 @@ namespace Sessions
      * @param registry 命令注册表接口
      */
     void RegisterSessionsCommand(Command_Core::ICommandRegistry& registry);
+
+    /**
+     * @brief 创建会话侧的规则包 provider
+     *
+     * 返回的 provider 由 Plugin 注入到 `ProfileRouter::CreateCommandRouter()`。
+     * 实现内部在 SessionManager 的锁内完成“当前会话 → profile → 命令 → 权限”的
+     * 一次性解析，避免把 Session* 带出锁外。
+     */
+    std::shared_ptr<ProfileRouter::IProfileSessionProvider> CreateProfileSessionProvider();
 }
 

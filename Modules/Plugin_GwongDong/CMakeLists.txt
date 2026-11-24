@@ -1,9 +1,11 @@
 set(lib_name Plugin_GwongDong)
-set(command_core_dir ${CMAKE_SOURCE_DIR}/Modules/CommandCore)
 set(saiko_lily_dir ${CMAKE_SOURCE_DIR}/Modules/SaiKoLily)
+set(command_core_dir ${CMAKE_SOURCE_DIR}/Modules/CommandCore)
+set(profile_router_dir ${CMAKE_SOURCE_DIR}/Modules/ProfileRouter)
 set(encapsulation_spdlog_dir ${CMAKE_SOURCE_DIR}/Modules/Loggings)
-set(teamspeak_sdk_dir ${CMAKE_SOURCE_DIR}/ExternModules/spdlog-1.15.3/ts3client-pluginsdk-26/include)
 set(gwong_dong_filesystem_dir ${CMAKE_SOURCE_DIR}/Modules/GwongDongFileSystems)
+set(teamspeak_sdk_dir ${CMAKE_SOURCE_DIR}/ExternModules/spdlog-1.15.3/ts3client-pluginsdk-26/include)
+
 
 
 
@@ -28,6 +30,7 @@ target_include_directories(${lib_name}
     ${saiko_lily_dir}/include
     ${command_core_dir}/include
     ${gwong_dong_filesystem_dir}/include
+    ${profile_router_dir}/include
 )
 
 if(MSVC)
@@ -40,6 +43,7 @@ target_link_libraries(${lib_name} PRIVATE command_core)
 target_link_libraries(${lib_name} PRIVATE encapsulation_spdlog)
 target_link_libraries(${lib_name} PRIVATE saiko_lily)
 target_link_libraries(${lib_name} PRIVATE gwongdong_filesystem)
+target_link_libraries(${lib_name} PRIVATE profile_router)
 
 # 静态链接 MinGW 运行时，避免插件依赖 libstdc++-6.dll / libgcc_s_seh-1.dll / libwinpthread-1.dll。
 if(MINGW)

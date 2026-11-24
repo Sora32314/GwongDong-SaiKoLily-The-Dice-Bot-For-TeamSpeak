@@ -13,6 +13,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/TS3FuncWrapper")
 endif()
 
 add_subdirectory(Loggings)
+add_subdirectory(ProfileRouter)
 add_subdirectory(SaiKoLily)
 add_subdirectory(Plugin_GwongDong)
-
